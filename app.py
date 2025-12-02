@@ -1,35 +1,38 @@
-import sqlite3
 from datetime import datetime
 from pathlib import Path
 
-from flask import Flask, jsonify, redirect, render_template, request, url_for
-from openpyxl import load_workbook
+from dotenv import load_dotenv
+
+load_dotenv()
+
+from flask import (  # noqa: E402
+    Flask,
+    abort,
+    jsonify,
+    redirect,
+    render_template,
+    request,
+    send_file,
+    url_for,
+)
+from openpyxl import load_workbook  # noqa: E402
+from werkzeug.datastructures import FileStorage  # noqa: E402
+
+from models import (  # noqa: E402
+    add_person_rows,
+    add_upload,
+    fetch_recent_uploads,
+    fetch_upload,
+    fetch_uploads_desc,
+    get_session,
+    init_db,
+)
 
 BASE_DIR = Path(__file__).resolve().parent
-UPLOAD_DIR = BASE_DIR / "uploads"
-DB_PATH = BASE_DIR / "database.db"
 
 app = Flask(__name__)
 app.config["MAX_CONTENT_LENGTH"] = 512 * 1024 * 1024  # 512 MB limit
 ALLOWED_EXCEL_SUFFIXES = {".xlsx"}
-
-
-def init_storage():
-    UPLOAD_DIR.mkdir(exist_ok=True)
-    with sqlite3.connect(DB_PATH) as conn:
-        conn.execute(
-            """
-            CREATE TABLE IF NOT EXISTS uploads (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                folder_name TEXT NOT NULL,
-                relative_path TEXT NOT NULL,
-                stored_path TEXT NOT NULL,
-                size_bytes INTEGER NOT NULL,
-                uploaded_at TEXT NOT NULL
-            )
-            """
-        )
-        conn.commit()
 
 
 def sanitize_relative_path(path: str) -> Path:
@@ -46,54 +49,37 @@ def sanitize_folder_label(label: str) -> str:
     return cleaned or "Ordner"
 
 
-def save_file(file_storage, folder_label: str):
+def ensure_upload_dir(path: Path) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+
+
+def build_storage_paths(folder_label: str, relative: Path) -> tuple[Path, Path]:
+    today = datetime.utcnow()
+    relative_server = Path("uploads") / f"{today:%Y}" / f"{today:%m}" / folder_label / relative
+    destination = BASE_DIR / relative_server
+    return destination, relative_server
+
+
+def save_file(session, file_storage: FileStorage, folder_label: str, uploader_ip: str | None):
     relative = sanitize_relative_path(file_storage.filename)
     if not relative.parts:
         return None
 
-    destination = UPLOAD_DIR / folder_label / relative
-    destination.parent.mkdir(parents=True, exist_ok=True)
+    destination, server_relative = build_storage_paths(folder_label, relative)
+    ensure_upload_dir(destination)
     file_storage.save(destination)
 
     size = destination.stat().st_size
-    with sqlite3.connect(DB_PATH) as conn:
-        conn.execute(
-            """
-            INSERT INTO uploads (folder_name, relative_path, stored_path, size_bytes, uploaded_at)
-            VALUES (?, ?, ?, ?, ?)
-            """,
-            (
-                folder_label,
-                str(relative),
-                str(destination.relative_to(BASE_DIR)),
-                size,
-                datetime.utcnow().isoformat(timespec="seconds"),
-            ),
-        )
-        conn.commit()
-    return relative
-
-
-def fetch_recent_uploads():
-    with sqlite3.connect(DB_PATH) as conn:
-        return conn.execute(
-            """
-            SELECT folder_name, relative_path, stored_path, size_bytes, uploaded_at
-            FROM uploads
-            ORDER BY uploaded_at DESC
-            LIMIT 25
-            """
-        ).fetchall()
-
-
-def render_home(*, names=None, success_message=None, error_message=None):
-    return render_template(
-        "index.html",
-        uploads=fetch_recent_uploads(),
-        names=names or [],
-        success_message=success_message,
-        error_message=error_message,
+    content_type = file_storage.mimetype or "application/octet-stream"
+    upload = add_upload(
+        session,
+        original_filename=str(relative),
+        server_path=str(server_relative),
+        size_bytes=size,
+        content_type=content_type,
+        uploader_ip=uploader_ip,
     )
+    return upload
 
 
 def parse_excel_names(file_storage):
@@ -134,9 +120,28 @@ def parse_excel_names(file_storage):
     return names
 
 
+def render_home(*, names=None, success_message=None, error_message=None):
+    session = get_session()
+    try:
+        uploads = fetch_recent_uploads(session)
+    finally:
+        session.close()
+    return render_template(
+        "index.html",
+        uploads=uploads,
+        names=names or [],
+        success_message=success_message,
+        error_message=error_message,
+    )
+
+
 @app.route("/")
 def index():
-    return render_home()
+    success_message = None
+    if request.args.get("success") == "true":
+        success_message = "Upload erfolgreich gespeichert – Einträge sind nun von überall abrufbar."
+
+    return render_home(success_message=success_message)
 
 
 @app.route("/upload", methods=["POST"])
@@ -148,16 +153,24 @@ def upload():
     if not files:
         return jsonify({"error": "Keine Dateien erhalten."}), 400
 
+    session = get_session()
     saved = 0
-    for file_storage in files:
-        saved_path = save_file(file_storage, folder_label)
-        if saved_path:
-            saved += 1
+    try:
+        for file_storage in files:
+            uploaded = save_file(session, file_storage, folder_label, request.remote_addr)
+            if uploaded:
+                saved += 1
+        if saved == 0:
+            session.rollback()
+            return jsonify({"error": "Es konnte nichts gespeichert werden."}), 400
+        session.commit()
+    except Exception:  # noqa: BLE001
+        session.rollback()
+        return jsonify({"error": "Speichern fehlgeschlagen."}), 500
+    finally:
+        session.close()
 
-    if saved == 0:
-        return jsonify({"error": "Es konnte nichts gespeichert werden."}), 400
-
-    return redirect(url_for("index"))
+    return redirect(url_for("index", success="true"))
 
 
 @app.route("/upload-namensliste", methods=["GET", "POST"])
@@ -178,12 +191,69 @@ def upload_namensliste():
             error_message="Die Namensliste konnte nicht verarbeitet werden. Bitte das offizielle Template verwenden."
         )
 
+    session = get_session()
+    folder_label = sanitize_folder_label(Path(file_storage.filename).stem)
+    try:
+        file_storage.stream.seek(0)
+        uploaded = save_file(session, file_storage, folder_label, request.remote_addr)
+        if not uploaded:
+            session.rollback()
+            return render_home(error_message="Es konnte nichts gespeichert werden.")
+        add_person_rows(session, uploaded, names)
+        session.commit()
+    except Exception:  # noqa: BLE001
+        session.rollback()
+        return render_home(error_message="Die Namensliste konnte nicht gespeichert werden.")
+    finally:
+        session.close()
+
     return render_home(
-        names=names, success_message="Namensliste wurde erfolgreich hochgeladen und verarbeitet."
+        names=names,
+        success_message="Upload erfolgreich gespeichert – Einträge sind nun von überall abrufbar.",
     )
 
 
-init_storage()
+@app.route("/admin/uploads")
+def admin_uploads():
+    session = get_session()
+    try:
+        uploads = fetch_uploads_desc(session)
+    finally:
+        session.close()
+    return render_template("admin_uploads.html", uploads=uploads)
+
+
+@app.route("/admin/uploads/<int:upload_id>")
+def admin_upload_detail(upload_id: int):
+    session = get_session()
+    try:
+        upload_obj = fetch_upload(session, upload_id)
+        if not upload_obj:
+            abort(404)
+    finally:
+        session.close()
+    return render_template("admin_upload_detail.html", upload=upload_obj)
+
+
+@app.route("/download/<int:upload_id>")
+def download(upload_id: int):
+    session = get_session()
+    try:
+        upload_obj = fetch_upload(session, upload_id)
+    finally:
+        session.close()
+
+    if not upload_obj:
+        abort(404)
+
+    file_path = BASE_DIR / upload_obj.server_path
+    if not file_path.exists():
+        abort(404)
+
+    return send_file(file_path, as_attachment=True, download_name=Path(upload_obj.original_filename).name)
+
+
+init_db()
 
 
 if __name__ == "__main__":

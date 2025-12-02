@@ -22,6 +22,25 @@ body {
     line-height: 1.6;
 }
 
+body.admin {
+    padding: 32px 8vw 64px;
+}
+
+.header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 16px;
+    margin-bottom: 20px;
+}
+
+.header__content h1 {
+    margin: 4px 0 8px;
+    font-size: clamp(26px, 3vw, 36px);
+}
+
+.header__actions { display: flex; gap: 8px; flex-wrap: wrap; }
+
 .hero {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
@@ -89,6 +108,7 @@ main { padding: 16px 8vw 64px; display: grid; gap: 24px; }
     padding: 20px;
     box-shadow: var(--shadow);
 }
+.panel__section { margin-top: 24px; }
 
 .panel__header { display: flex; justify-content: space-between; align-items: center; }
 
@@ -164,6 +184,10 @@ main { padding: 16px 8vw 64px; display: grid; gap: 24px; }
     gap: 12px;
     align-items: center;
 }
+.table--admin .table__header,
+.table--admin .table__row {
+    grid-template-columns: 0.6fr 1.6fr 1.4fr 1fr 1.4fr 1fr;
+}
 .table--names .table__header,
 .table--names .table__row {
     grid-template-columns: 1fr 1fr;
@@ -171,6 +195,21 @@ main { padding: 16px 8vw 64px; display: grid; gap: 24px; }
 .table__header { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: 0.05em; }
 .table__row { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 10px 12px; }
 .table__empty { color: var(--muted); padding: 16px; background: var(--card); border: 1px dashed var(--border); border-radius: 12px; }
+.table__row .actions { display: flex; gap: 8px; flex-wrap: wrap; }
+
+.detail {
+    display: grid;
+    gap: 16px;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+}
+
+.detail__value {
+    margin: 4px 0 0;
+    font-weight: 600;
+}
+
+.mono { font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", Menlo, monospace; }
+.nowrap { white-space: nowrap; }
 
 .footer { text-align: center; padding: 24px 0 8px; color: var(--muted); }
 
