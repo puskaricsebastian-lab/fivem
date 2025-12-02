@@ -16,54 +16,50 @@ Elegante Weboberfläche zum Hochladen kompletter Ordner. Fürs Ausprobieren läu
 - `pip` zum Installieren der Abhängigkeiten (unter macOS/Linux meist bereits dabei; unter Windows ggf. [Python-Installer](https://www.python.org/downloads/) neu ausführen und "Add python.exe to PATH" aktivieren).
 - Ein `SECRET_KEY` für Flask-Sessions (z. B. in `.env` setzen: `SECRET_KEY=irgendein_geheimnis`).
 
-## Schritt-für-Schritt-Anleitung
-1. **Projektordner öffnen**  
-   Beispiel: Wenn du das Repo ausgepackt hast, navigiere im Terminal oder in PowerShell nach `.../fivem`.
+## Schritt-für-Schritt mit PhpStorm (von 0 auf)
+1. **Projekt in PhpStorm öffnen**
+   - `File > Open…` und den Ordner `fivem` auswählen.
+   - PhpStorm erkennt eine Python-App; falls gefragt, „This window“ bestätigen.
 
-2. **(Optional) Virtuelle Umgebung anlegen**  
-   So bleibt dein System sauber:
-   ```bash
-   python -m venv .venv
-   # Umgebung aktivieren
-   # Windows (PowerShell)
-   .venv\Scripts\Activate.ps1
-   # macOS/Linux (bash/zsh)
-   source .venv/bin/activate
-   ```
+2. **Interpreter + (optional) virtuelle Umgebung**
+   - Unten rechts auf die Python-Version klicken → „Add New Interpreter…“ → „Virtualenv Environment“ → „OK“. PhpStorm legt `.venv` an und nutzt sie automatisch.
+   - Alternativ kannst du im integrierten Terminal manuell anlegen:
+     ```bash
+     python -m venv .venv
+     # Windows (PowerShell)
+     .venv\Scripts\Activate.ps1
+     # macOS/Linux (bash/zsh)
+     source .venv/bin/activate
+     ```
 
 3. **Abhängigkeiten installieren**
-   ```bash
-   pip install --upgrade pip
-   pip install -r requirements.txt
-   ```
+   - Im PhpStorm-Terminal (unten):
+     ```bash
+     pip install --upgrade pip
+     pip install -r requirements.txt
+     ```
+   - PhpStorm zeigt gefundene Packages auch in `Python Packages`; falls etwas fehlt, kannst du dort nachinstallieren.
 
-4. **(Optional) Datenbank konfigurieren**  
-   Standardmäßig verwendet die App automatisch eine lokale SQLite-Datei `database.db` im Projektordner – ohne zusätzliche Einrichtung. Wenn du gleich eine zentrale DB testen willst, setze `DATABASE_URL` (z. B. in einer `.env`-Datei oder direkt als Umgebungsvariable):
-   ```bash
-   export DATABASE_URL="postgresql+psycopg2://user:pass@host:5432/htl_upload"
-   ```
-   Optional legst du auch `SECRET_KEY` hier ab:
-   ```bash
-   export SECRET_KEY="etwas-langes-und-geheimes"
-   ```
-   Die Tabellen `users`, `uploads` (für alle Dateien) und `persons` (für Excel-Namen) werden beim Start automatisch erstellt.
+4. **(Optional) Umgebungsvariablen setzen**
+   - Für den Schnellstart ist nichts nötig (es wird automatisch `database.db` als lokale SQLite genutzt).
+   - Wenn du zentral testen willst: In PhpStorm `Run > Edit Configurations…` → `+` → „Python“ → Script `app.py` wählen → unter „Environment variables“ `DATABASE_URL=postgresql+psycopg2://user:pass@host:5432/htl_upload` eintragen. Hier kannst du auch `SECRET_KEY=etwas-langes-und-geheimes` setzen.
+   - Tabellen (`users`, `uploads`, `persons`) werden beim Start automatisch erstellt.
 
-5. **Server starten**
-   ```bash
-   python app.py
-   ```
-   Die Konsole zeigt dann `Running on http://127.0.0.1:5000`. Wird der Server auf einem Hoster mit fester URL betrieben, sind Uploads und Downloads auch später erreichbar.
+5. **Run/Debug-Konfiguration anlegen**
+   - `Run > Edit Configurations…` → `+` → „Python“ → Name z. B. „HTL Upload“ → Script path: `app.py` → Interpreter: deine `.venv` → OK.
+   - Alternativ über das Play-Symbol oben rechts einen neuen „Python“-Run anlegen.
 
-6. **Seite im Browser öffnen**
-   Rufe `http://localhost:5000` auf.
+6. **Server starten**
+   - Mit dem Play-Button („Run HTL Upload“) oder Debug-Button in PhpStorm starten.
+   - Im „Run“-Toolfenster siehst du die Ausgabe `Running on http://127.0.0.1:5000`.
 
-   - **Registrieren**: E-Mail, Passwort und Tarif auswählen (Free = 5 Uploads pro Tag, Premium = unbegrenzt). Nach erfolgreicher Registrierung oder Anmeldung erscheint oben ein grüner Hinweis.
-   - **Upload**: Wähle einen Ordner oder eine Excel-Namensliste. Uploads werden nur gespeichert, wenn du eingeloggt bist und (im Free-Tarif) das Tageslimit nicht überschreitest.
+7. **Seite im Browser öffnen und testen**
+   - `http://localhost:5000` aufrufen.
+   - **Registrieren/Anmelden:** E-Mail + Passwort eingeben, Tarif wählen (Free = 5 Uploads pro Tag, Premium = unbegrenzt). Nach Login erscheint eine grüne Erfolgsmeldung.
+   - **Uploads:** Ordner oder Excel-Namensliste auswählen und hochladen. Nur eingeloggt werden Uploads gespeichert; Free-Tarif limitiert pro Tag.
+   - **Historie & Downloads:** `http://localhost:5000/admin/uploads` zeigt alle Uploads mit Download-Link. Fehler/Logs stehen im PhpStorm-Run-Fenster.
 
-7. **Ergebnis prüfen**
-   Unterhalb des Formulars erscheint die Tabelle der letzten Uploads mit Datum, Pfad und Größe. Im Admin-Bereich `http://localhost:5000/admin/uploads` kannst du alle Uploads samt Download-Link einsehen. Fehler oder Logs siehst du im Terminal.
-
-> Hinweis: Das Hochladen kompletter Ordner wird aktuell vor allem von Chromium-basierten Browsern unterstützt. Safari/Firefox zeigen ggf. nur Dateiauswahl an.
+> Hinweis: Ordner-Upload funktioniert primär in Chromium-basierten Browsern. Safari/Firefox zeigen ggf. nur Dateiauswahl.
 
 ## Wo liegt der Code und die Uploads?
 - Der gesamte Quellcode liegt in diesem Projektordner (z. B. `/workspace/fivem` in der Entwicklungsumgebung oder im Deploy-Verzeichnis auf dem Server).
