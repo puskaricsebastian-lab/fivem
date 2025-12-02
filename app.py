@@ -128,9 +128,9 @@ def ensure_upload_dir(path: Path) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
 
 
-def build_storage_paths(folder_label: str, relative: Path) -> tuple[Path, Path]:
+def build_storage_paths(folder_label: str, relative: Path, *, user_id: int) -> tuple[Path, Path]:
     today = datetime.utcnow()
-    relative_server = Path("uploads") / f"{today:%Y}" / f"{today:%m}" / folder_label / relative
+    relative_server = Path("uploads") / str(user_id) / f"{today:%Y}" / f"{today:%m}" / folder_label / relative
     destination = BASE_DIR / relative_server
     return destination, relative_server
 
@@ -147,7 +147,7 @@ def save_file(
     if not relative.parts:
         return None
 
-    destination, server_relative = build_storage_paths(folder_label, relative)
+    destination, server_relative = build_storage_paths(folder_label, relative, user_id=user_id)
     ensure_upload_dir(destination)
     file_storage.save(destination)
 
@@ -254,6 +254,16 @@ def render_landing_page(*, success_message=None, error_message=None):
     )
 
 
+def render_admin_login_page(*, success_message=None, error_message=None):
+    theme = get_theme(None)
+    return render_template(
+        "admin_login.html",
+        theme=theme,
+        success_message=success_message,
+        error_message=error_message,
+    )
+
+
 @app.route("/")
 def landing():
     db_session = get_session()
@@ -339,6 +349,31 @@ def login():
         db_session.close()
 
     return redirect(url_for("app_home", success="logged_in"))
+
+
+@app.route("/admin/login", methods=["GET", "POST"])
+def admin_login():
+    if request.method == "GET":
+        success_message = success_text_from_query(request.args.get("success"))
+        error_message = error_text_from_query(request.args.get("error")) or request.args.get("message")
+        return render_admin_login_page(success_message=success_message, error_message=error_message)
+
+    email = (request.form.get("email") or "").strip()
+    password = request.form.get("password") or ""
+
+    if not email or not password:
+        return render_admin_login_page(error_message="Bitte E-Mail und Passwort ausfüllen.")
+
+    db_session = get_session()
+    try:
+        user = get_user_by_email(db_session, email)
+        if not user or not check_password_hash(user.password_hash, password) or not user.is_admin:
+            return render_admin_login_page(error_message="Admin-Zugang nicht gültig.")
+        flask_session["user_id"] = user.id
+    finally:
+        db_session.close()
+
+    return redirect(url_for("admin_panel", success="logged_in"))
 
 
 @app.route("/logout", methods=["POST"])
@@ -577,7 +612,7 @@ def admin_uploads():
     try:
         user = require_user(db_session)
         if not user:
-            return redirect(url_for("landing", error="login_required"))
+            return redirect(url_for("admin_login", error="login_required"))
         if not user.is_admin:
             return redirect(url_for("app_home", error="unauthorized")), 403
 
@@ -594,7 +629,7 @@ def admin_upload_detail(upload_id: int):
     try:
         user = require_user(db_session)
         if not user:
-            return redirect(url_for("landing", error="login_required"))
+            return redirect(url_for("admin_login", error="login_required"))
         if not user.is_admin:
             return redirect(url_for("app_home", error="unauthorized")), 403
 
@@ -613,7 +648,7 @@ def admin_panel():
     try:
         user = require_user(db_session)
         if not user:
-            return redirect(url_for("landing", error="login_required"))
+            return redirect(url_for("admin_login", error="login_required"))
         if not user.is_admin:
             return redirect(url_for("app_home", error="unauthorized")), 403
 

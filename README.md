@@ -6,9 +6,9 @@ Elegante Weboberfläche zum Hochladen kompletter Ordner. Fürs Ausprobieren läu
 - Login-Pflicht mit Benutzerkonten (E-Mail + Passwort, gehasht gespeichert) und Plänen Free/Premium/Trial.
 - Upload kompletter Ordner (inklusive Unterordner) per Browser (`webkitdirectory`) – jedem Upload wird der aktuelle Benutzer zugeordnet.
 - Persönliche Cloud-Ansicht unter „Meine Dateien“: alle eigenen Uploads mit Download- und Lösch-Buttons (löscht auch die physische Datei).
-- Speicherung auf dem Server-Dateisystem unter `uploads/<jahr>/<monat>/...`; Metadaten in SQLite (lokal) oder optional in einer zentralen DB via `DATABASE_URL` (z. B. PostgreSQL).
+- Speicherung auf dem Server-Dateisystem pro Benutzer unter `uploads/<user_id>/<jahr>/<monat>/...`; Metadaten in SQLite (lokal) oder optional in einer zentralen DB via `DATABASE_URL` (z. B. PostgreSQL).
 - Upload einer Excel-Namensliste (.xlsx) mit Vor-/Nachname; alle Namen landen in der Tabelle `persons` und gehören zum jeweiligen Nutzer.
-- Admin-Bereich (`/admin/uploads`, `/admin`) für vollständige Historie aller Nutzer (nur `is_admin=True`).
+- Admin-Bereich (`/admin/login`, `/admin/uploads`, `/admin`) für vollständige Historie aller Nutzer (nur `is_admin=True`).
 
 ### Benutzer & Quoten
 - Free: 5 Uploads pro Tag und Benutzer.
@@ -69,7 +69,7 @@ Elegante Weboberfläche zum Hochladen kompletter Ordner. Fürs Ausprobieren läu
 
 ## Wo liegt der Code und die Uploads?
 - Der gesamte Quellcode liegt in diesem Projektordner (z. B. `/workspace/fivem` in der Entwicklungsumgebung oder im Deploy-Verzeichnis auf dem Server).
-- Hochgeladene Dateien landen auf dem Server im Unterordner `uploads/<jahr>/<monat>/...`; die Metadaten schreibt die App standardmäßig in die lokale SQLite-Datei `database.db` (per `DATABASE_URL` später auf eine zentrale DB umstellbar).
+- Hochgeladene Dateien landen auf dem Server im Unterordner `uploads/<user_id>/<jahr>/<monat>/...`; die Metadaten schreibt die App standardmäßig in die lokale SQLite-Datei `database.db` (per `DATABASE_URL` später auf eine zentrale DB umstellbar).
 - Standardmäßig wird nichts automatisch nach GitHub übertragen. Wenn du das Projekt in ein eigenes GitHub-Repository pushen möchtest, kannst du dort ein neues Repo anlegen und die vorhandenen Dateien hochladen.
 
 > Hinweis: Ich kann den Server/die Datenbank aus Sicherheitsgründen nicht selbst für dich aufsetzen oder Zugangsdaten entgegennehmen. Die obigen Schritte kannst du direkt auf deinem Root-Server ausführen (z. B. mit systemd + Nginx/Gunicorn für einen dauerhaften Betrieb).
