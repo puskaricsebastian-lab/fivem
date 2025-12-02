@@ -1,5 +1,6 @@
 import os
 from datetime import date, datetime, timedelta
+from pathlib import Path
 from typing import Iterable, List, Optional
 
 from sqlalchemy import (
@@ -14,9 +15,9 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import Session, declarative_base, relationship, scoped_session, sessionmaker
 
-DATABASE_URL = os.environ.get("DATABASE_URL")
-if not DATABASE_URL:
-    raise RuntimeError("DATABASE_URL ist nicht gesetzt. Bitte Umgebungsvariable konfigurieren (z.B. postgres://...)")
+
+BASE_DIR = Path(__file__).resolve().parent
+DATABASE_URL = os.environ.get("DATABASE_URL") or f"sqlite:///{BASE_DIR / 'database.db'}"
 
 engine = create_engine(DATABASE_URL, future=True)
 SessionLocal = scoped_session(sessionmaker(bind=engine, autoflush=False, autocommit=False))

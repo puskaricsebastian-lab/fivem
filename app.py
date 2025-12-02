@@ -185,7 +185,7 @@ def render_home(*, names=None, success_message=None, error_message=None):
 def index():
     success_message = None
     if request.args.get("success") == "true":
-        success_message = "Upload erfolgreich gespeichert – Einträge sind nun von überall abrufbar."
+        success_message = "Upload erfolgreich gespeichert (aktuell lokale Demo-Datenbank)."
 
     return render_home(success_message=success_message)
 
@@ -335,7 +335,7 @@ def upload_namensliste():
 
     return render_home(
         names=names,
-        success_message="Upload erfolgreich gespeichert – Einträge sind nun von überall abrufbar.",
+        success_message="Upload erfolgreich gespeichert (aktuell lokale Demo-Datenbank).",
     )
 
 
