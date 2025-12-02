@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>HTL Upload | Elegante Ablage</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+    <header class="hero">
+        <div class="hero__content">
+            <p class="eyebrow">HTL Upload</p>
+            <h1>Ordner direkt in deine lokale Datenbank hochladen</h1>
+            <p class="subtitle">Lade ganze Ordner und Dateien hoch. Alles landet automatisch auf deinem PC und wird in einer SQLite-Datenbank protokolliert.</p>
+            <div class="hero__actions">
+                <a class="button" href="#upload">Ordner hochladen</a>
+                <a class="button button--ghost" href="#verlauf">Upload-Verlauf ansehen</a>
+            </div>
+        </div>
+        <div class="hero__card">
+            <p class="hero__label">Schneller Upload</p>
+            <p class="hero__text">Drag & Drop oder per Klick auswählen. Unterstützt das Hochladen kompletter Ordnerstrukturen.</p>
+            <div class="hero__footer">
+                <span class="chip">512 MB Limit pro Anfrage</span>
+                <span class="chip">Lokale Speicherung</span>
+            </div>
+        </div>
+    </header>
+
+    <main>
+        <section id="upload" class="panel">
+            <div class="panel__header">
+                <div>
+                    <p class="eyebrow">Upload</p>
+                    <h2>Deine Ordner hochladen</h2>
+                    <p class="subtitle">Wähle einen Ordner und optional einen Namen, unter dem er gespeichert wird.</p>
+                </div>
+            </div>
+            <form class="upload" action="{{ url_for('upload') }}" method="post" enctype="multipart/form-data">
+                <label class="field">
+                    <span>Ordnername</span>
+                    <input type="text" name="folderName" placeholder="z.B. Htl-Projekt" aria-label="Ordnername">
+                </label>
+                <label class="dropzone" for="files">
+                    <input id="files" type="file" name="files" webkitdirectory directory multiple required>
+                    <div class="dropzone__inner">
+                        <div class="icon">📁</div>
+                        <div>
+                            <p class="dropzone__title">Ordner hier ablegen oder klicken, um auszuwählen</p>
+                            <p class="subtitle">Unterstützt verschachtelte Ordner und alle Dateitypen</p>
+                        </div>
+                    </div>
+                </label>
+                <button class="button" type="submit">Upload starten</button>
+            </form>
+        </section>
+
+        <section id="verlauf" class="panel">
+            <div class="panel__header">
+                <div>
+                    <p class="eyebrow">Verlauf</p>
+                    <h2>Letzte Uploads</h2>
+                    <p class="subtitle">Die letzten 25 hochgeladenen Dateien mit Pfad und Zeitpunkt.</p>
+                </div>
+            </div>
+            <div class="table">
+                <div class="table__header">
+                    <span>Ordner</span>
+                    <span>Datei</span>
+                    <span>Gespeichert</span>
+                    <span>Größe</span>
+                </div>
+                {% for row in uploads %}
+                <div class="table__row">
+                    <span>{{ row[0] }}</span>
+                    <span>{{ row[1] }}</span>
+                    <span>{{ row[4] }}</span>
+                    <span>{{ (row[3] / 1024)|round(1) }} KB</span>
+                </div>
+                {% else %}
+                <div class="table__empty">Noch keine Uploads vorhanden.</div>
+                {% endfor %}
+            </div>
+        </section>
+    </main>
+
+    <footer class="footer">
+        <p>HTL Upload • Elegantes Ordner-Management auf deinem PC</p>
+    </footer>
+</body>
+</html>
