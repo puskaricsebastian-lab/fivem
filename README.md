@@ -20,3 +20,8 @@ Elegante Weboberfläche zum Hochladen kompletter Ordner. Dateien werden lokal ge
 3. Die Seite unter `http://localhost:5000` öffnen und den gewünschten Ordner hochladen.
 
 > Hinweis: Das Hochladen kompletter Ordner wird aktuell vor allem von Chromium-basierten Browsern unterstützt.
+
+## Wo liegt der Code und die Uploads?
+- Der gesamte Quellcode liegt in diesem lokalen Projektordner (z. B. `/workspace/fivem` in der Entwicklungsumgebung).
+- Hochgeladene Dateien landen auf derselben Maschine im Unterordner `uploads/`; die Metadaten speichert die App in `database.db`.
+- Standardmäßig wird nichts automatisch nach GitHub übertragen. Wenn du das Projekt in ein eigenes GitHub-Repository pushen möchtest, kannst du dort ein neues Repo anlegen und die vorhandenen Dateien hochladen.
