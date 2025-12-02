@@ -28,6 +28,16 @@
     </header>
 
     <main>
+        {% if success_message %}
+        <div class="alert alert--success">
+            {{ success_message }}
+        </div>
+        {% elif error_message %}
+        <div class="alert alert--error">
+            {{ error_message }}
+        </div>
+        {% endif %}
+
         <section id="upload" class="panel">
             <div class="panel__header">
                 <div>
@@ -53,6 +63,38 @@
                 </label>
                 <button class="button" type="submit">Upload starten</button>
             </form>
+        </section>
+
+        <section id="namensliste" class="panel">
+            <div class="panel__header">
+                <div>
+                    <p class="eyebrow">Namensliste</p>
+                    <h2>Namensliste hochladen</h2>
+                    <p class="subtitle">Lade eine Excel-Datei (.xlsx) mit den Spalten Vorname und Nachname hoch.</p>
+                </div>
+            </div>
+            <form class="upload" action="{{ url_for('upload_namensliste') }}" method="post" enctype="multipart/form-data">
+                <label class="field">
+                    <span>Excel-Datei (.xlsx)</span>
+                    <input type="file" name="namensliste" accept=".xlsx" required aria-label="Excel-Datei auswählen">
+                </label>
+                <button class="button" type="submit">Namensliste hochladen</button>
+            </form>
+
+            {% if names %}
+            <div class="table table--names">
+                <div class="table__header">
+                    <span>Vorname</span>
+                    <span>Nachname</span>
+                </div>
+                {% for person in names %}
+                <div class="table__row">
+                    <span>{{ person.vorname }}</span>
+                    <span>{{ person.nachname }}</span>
+                </div>
+                {% endfor %}
+            </div>
+            {% endif %}
         </section>
 
         <section id="verlauf" class="panel">

@@ -7,6 +7,7 @@ Elegante Weboberfläche zum Hochladen kompletter Ordner. Dateien werden lokal ge
 - Speicherung auf dem lokalen Dateisystem unter `uploads/`.
 - Protokoll in `database.db` mit Dateipfaden, Größen und Zeitstempeln.
 - Moderner, dunkler Look mit Fokus auf Übersichtlichkeit.
+- Upload einer Excel-Namensliste (.xlsx) mit Anzeige aller Vor- und Nachnamen auf der Seite.
 
 ## Voraussetzungen
 - Python 3.10 oder neuer (prüfen mit `python --version` oder `python3 --version`).
@@ -33,16 +34,18 @@ Elegante Weboberfläche zum Hochladen kompletter Ordner. Dateien werden lokal ge
    pip install -r requirements.txt
    ```
 
-4. **Server starten**  
+4. **Server starten**
    ```bash
    python app.py
    ```
    Die Konsole zeigt dann `Running on http://127.0.0.1:5000`.
 
-5. **Seite im Browser öffnen**  
+5. **Seite im Browser öffnen**
    Rufe `http://localhost:5000` auf. Wähle im Formular einen Ordner (Chromium/Edge/Chrome unterstützen vollständige Ordner-Uploads) und klicke auf **Upload Folder**.
 
-6. **Ergebnis prüfen**  
+   Für eine Namensliste nutze den Abschnitt **„Namensliste hochladen“** und wähle eine `.xlsx`-Datei im offiziellen Template (Spalte A: Vorname, Spalte B: Nachname, erste Zeile = Überschriften). Nach erfolgreichem Upload erscheinen die Namen als Tabelle und eine grüne Erfolgsmeldung.
+
+6. **Ergebnis prüfen**
    Unterhalb des Formulars erscheint die Tabelle der letzten Uploads mit Datum, Pfad und Größe. Fehler oder Logs siehst du im Terminal.
 
 > Hinweis: Das Hochladen kompletter Ordner wird aktuell vor allem von Chromium-basierten Browsern unterstützt. Safari/Firefox zeigen ggf. nur Dateiauswahl an.
