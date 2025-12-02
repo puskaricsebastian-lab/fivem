@@ -37,26 +37,22 @@
                 </label>
                 <button class="button" type="submit">Speichern</button>
             </form>
-            <p class="muted">Als Gast wird das Theme im Browser gespeichert. Eingeloggt wird es deinem Nutzer zugeordnet.</p>
+            <p class="muted">Das Theme wird in deinem Account gespeichert und auf allen Geräten genutzt.</p>
         </section>
 
         <section class="panel__section">
             <p class="eyebrow">Trial</p>
             <h2>Premium-Trial verwalten</h2>
-            {% if user %}
-                {% if user.plan == 'premium' %}
-                    <p>Du bist bereits Premium. Kein Limit aktiv.</p>
-                {% elif user.plan == 'trial' and user.trial_expires_at and user.trial_expires_at >= datetime.utcnow() %}
-                    <p>Trial aktiv bis {{ user.trial_expires_at }}.</p>
-                {% else %}
-                    <form action="{{ url_for('settings') }}" method="post" class="settings__form">
-                        <input type="hidden" name="action" value="start_trial">
-                        <button class="button" type="submit">7-Tage-Trial starten</button>
-                    </form>
-                    <p class="muted">Trial gilt pro Account einmalig.</p>
-                {% endif %}
+            {% if user.plan == 'premium' %}
+                <p>Du bist bereits Premium. Kein Limit aktiv.</p>
+            {% elif user.plan == 'trial' and user.trial_expires_at and user.trial_expires_at >= datetime.utcnow() %}
+                <p>Trial aktiv bis {{ user.trial_expires_at }}.</p>
             {% else %}
-                <p>Bitte registrieren oder einloggen, um den Premium-Trial zu aktivieren.</p>
+                <form action="{{ url_for('settings') }}" method="post" class="settings__form">
+                    <input type="hidden" name="action" value="start_trial">
+                    <button class="button" type="submit">7-Tage-Trial starten</button>
+                </form>
+                <p class="muted">Trial gilt pro Account einmalig.</p>
             {% endif %}
         </section>
     </main>

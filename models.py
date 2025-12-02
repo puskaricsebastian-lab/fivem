@@ -29,7 +29,7 @@ class Upload(Base):
     __tablename__ = "uploads"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    user_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     original_filename = Column(String(255), nullable=False)
     server_path = Column(String(1024), nullable=False)
     size_bytes = Column(Integer, nullable=False)
@@ -87,6 +87,17 @@ def fetch_recent_uploads(session: Session, limit: int = 25) -> List[Upload]:
     )
 
 
+def fetch_user_uploads(session: Session, user_id: int, limit: int | None = None) -> List[Upload]:
+    query = (
+        session.query(Upload)
+        .filter(Upload.user_id == user_id)
+        .order_by(Upload.upload_timestamp.desc())
+    )
+    if limit:
+        query = query.limit(limit)
+    return query.all()
+
+
 def fetch_uploads_desc(session: Session) -> List[Upload]:
     return session.query(Upload).order_by(Upload.upload_timestamp.desc()).all()
 
@@ -95,10 +106,18 @@ def fetch_upload(session: Session, upload_id: int) -> Upload | None:
     return session.query(Upload).filter(Upload.id == upload_id).one_or_none()
 
 
+def fetch_upload_for_user(session: Session, upload_id: int, user_id: int) -> Upload | None:
+    return (
+        session.query(Upload)
+        .filter(Upload.id == upload_id, Upload.user_id == user_id)
+        .one_or_none()
+    )
+
+
 def add_upload(
     session: Session,
     *,
-    user_id: Optional[int],
+    user_id: int,
     original_filename: str,
     server_path: str,
     size_bytes: int,

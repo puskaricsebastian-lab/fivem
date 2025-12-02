@@ -10,56 +10,45 @@
     <header class="topbar">
         <div class="topbar__brand">
             <span class="logo">HTL Upload</span>
-            <span class="pill">Live-Demo</span>
+            <span class="pill">Persönliche Cloud</span>
         </div>
         <nav class="topbar__nav">
-            <a href="{{ url_for('landing') }}">Was ist das?</a>
+            <a href="{{ url_for('landing') }}">Start</a>
+            <a href="{{ url_for('app_home') }}" class="active">Upload</a>
+            <a href="{{ url_for('my_uploads') }}">Meine Dateien</a>
             <a href="{{ url_for('settings') }}">Einstellungen</a>
             {% if user and user.is_admin %}
                 <a href="{{ url_for('admin_panel') }}">Admin</a>
             {% endif %}
         </nav>
         <div class="topbar__actions">
-            {% if user %}
             <form action="{{ url_for('logout') }}" method="post">
                 <button class="button button--ghost" type="submit">Logout</button>
             </form>
-            {% else %}
-            <a class="button button--ghost" href="{{ url_for('settings') }}">Theme wechseln</a>
-            {% endif %}
         </div>
     </header>
 
     <section class="hero hero--tight">
         <div class="hero__content">
-            <p class="eyebrow">Uploads sofort testen</p>
-            <h1>Hochladen ohne Login (kleines Kontingent) oder mit Account für mehr</h1>
-            <p class="subtitle">Lade Ordner, einzelne Dateien oder eine Excel-Namensliste hoch. Als Gast stehen dir {{ guest_limit }} Uploads pro Tag zur Verfügung – mit Account gilt das Free-Kontingent ({{ daily_limit }} Uploads/Tag) oder Premium/Premium-Trial ohne Limit.</p>
+            <p class="eyebrow">Angemeldet</p>
+            <h1>Willkommen zurück, {{ user.email }}</h1>
+            <p class="subtitle">Alle Uploads werden deinem Konto zugeordnet. Du kannst sie jederzeit unter „Meine Dateien" herunterladen oder löschen.</p>
             <div class="hero__actions">
                 <a class="button" href="#upload">Upload starten</a>
-                <a class="button button--ghost" href="{{ url_for('settings') }}">Trial & Theme verwalten</a>
-                <a class="button button--ghost" href="{{ url_for('admin_uploads') }}">Verlauf ansehen</a>
+                <a class="button button--ghost" href="{{ url_for('my_uploads') }}">Zu meinen Dateien</a>
             </div>
         </div>
         <div class="hero__card">
             <p class="hero__label">Status</p>
-            {% if user %}
-                <p class="hero__text">Eingeloggt als {{ user.email }}</p>
-                <div class="chip-row">
-                    <span class="chip">Plan: {{ 'Premium' if user.plan == 'premium' else ('Premium-Trial' if user.plan == 'trial' and user.trial_expires_at and user.trial_expires_at >= datetime.utcnow() else 'Free') }}</span>
-                    {% if user.plan == 'premium' or (user.plan == 'trial' and user.trial_expires_at and user.trial_expires_at >= datetime.utcnow()) %}
-                        <span class="chip chip--success">Unbegrenzt</span>
-                    {% else %}
-                        <span class="chip">Uploads heute: {{ today_count }}/{{ daily_limit }}</span>
-                    {% endif %}
-                </div>
-            {% else %}
-                <p class="hero__text">Gast-Demo aktiv. Kontingent: {{ guest_limit - guest_used }} von {{ guest_limit }} Uploads verfügbar.</p>
-                <div class="chip-row">
-                    <span class="chip">Kein Login nötig</span>
-                    <span class="chip">Upgrade möglich</span>
-                </div>
-            {% endif %}
+            <p class="hero__text">Plan: {{ 'Premium' if user.plan == 'premium' else ('Premium-Trial' if user.plan == 'trial' and user.trial_expires_at and user.trial_expires_at >= datetime.utcnow() else 'Free') }}</p>
+            <div class="chip-row">
+                {% if user.plan == 'premium' or (user.plan == 'trial' and user.trial_expires_at and user.trial_expires_at >= datetime.utcnow()) %}
+                    <span class="chip chip--success">Unbegrenzt</span>
+                {% else %}
+                    <span class="chip">Uploads heute: {{ today_count }}/{{ daily_limit }}</span>
+                {% endif %}
+                <span class="chip">Theme: {{ theme }}</span>
+            </div>
         </div>
     </section>
 
@@ -69,60 +58,17 @@
     <div class="alert alert--error">{{ error_message }}</div>
     {% endif %}
 
-    {% if not user %}
-    <section class="panel auth auth--grid">
-        <div>
-            <p class="eyebrow">Optional anmelden</p>
-            <h2>Registrieren</h2>
-            <form class="auth__form" action="{{ url_for('register') }}" method="post">
-                <label class="field">
-                    <span>E-Mail</span>
-                    <input type="email" name="email" required placeholder="you@example.com">
-                </label>
-                <label class="field">
-                    <span>Passwort</span>
-                    <input type="password" name="password" required placeholder="••••••">
-                </label>
-                <label class="field">
-                    <span>Tarif</span>
-                    <select name="plan">
-                        <option value="free">Free ({{ daily_limit }} Uploads/Tag)</option>
-                        <option value="premium">Premium (unbegrenzt)</option>
-                    </select>
-                </label>
-                <button class="button" type="submit">Account anlegen</button>
-            </form>
-        </div>
-        <div>
-            <p class="eyebrow">Schon dabei?</p>
-            <h2>Einloggen</h2>
-            <form class="auth__form" action="{{ url_for('login') }}" method="post">
-                <label class="field">
-                    <span>E-Mail</span>
-                    <input type="email" name="email" required placeholder="you@example.com">
-                </label>
-                <label class="field">
-                    <span>Passwort</span>
-                    <input type="password" name="password" required placeholder="••••••">
-                </label>
-                <button class="button button--ghost" type="submit">Anmelden</button>
-            </form>
-        </div>
-    </section>
-    {% endif %}
-
     <main>
         <section id="upload" class="panel">
             <div class="panel__header">
                 <div>
                     <p class="eyebrow">Upload</p>
                     <h2>Ordner oder Dateien hochladen</h2>
-                    <p class="subtitle">Ohne Login im Gastmodus gespeichert oder mit Account direkt deinem Nutzer zugeordnet.</p>
+                    <p class="subtitle">Wird direkt deinem Account zugeordnet. Maximal 512 MB pro Anfrage.</p>
                 </div>
                 <div class="chip-row">
-                    <span class="chip">512 MB pro Anfrage</span>
-                    <span class="chip">Gast: {{ guest_limit }} / Tag</span>
                     <span class="chip">Free: {{ daily_limit }} / Tag</span>
+                    <span class="chip chip--success">Premium/Trial: unbegrenzt</span>
                 </div>
             </div>
             <form class="upload" action="{{ url_for('upload') }}" method="post" enctype="multipart/form-data">
@@ -149,7 +95,7 @@
                 <div>
                     <p class="eyebrow">Namensliste</p>
                     <h2>Excel (.xlsx) hochladen</h2>
-                    <p class="subtitle">Spalten Vorname und Nachname ab Zeile 2. Gast und angemeldete Nutzer möglich.</p>
+                    <p class="subtitle">Spalten Vorname und Nachname ab Zeile 2. Wird deinem Account zugeordnet.</p>
                 </div>
             </div>
             <form class="upload" action="{{ url_for('upload_namensliste') }}" method="post" enctype="multipart/form-data">
@@ -159,31 +105,16 @@
                 </label>
                 <button class="button" type="submit">Namensliste hochladen</button>
             </form>
-
-            {% if names %}
-            <div class="table table--names">
-                <div class="table__header">
-                    <span>Vorname</span>
-                    <span>Nachname</span>
-                </div>
-                {% for person in names %}
-                <div class="table__row">
-                    <span>{{ person.vorname }}</span>
-                    <span>{{ person.nachname }}</span>
-                </div>
-                {% endfor %}
-            </div>
-            {% endif %}
         </section>
 
         <section id="verlauf" class="panel">
             <div class="panel__header">
                 <div>
-                    <p class="eyebrow">Verlauf</p>
-                    <h2>Letzte Uploads</h2>
-                    <p class="subtitle">Die letzten 25 hochgeladenen Dateien (Demo-Datenbank). Downloads funktionieren von überall, solange der Server läuft.</p>
+                    <p class="eyebrow">Meine letzten Uploads</p>
+                    <h2>Nur deine Dateien</h2>
+                    <p class="subtitle">Neueste Einträge, sortiert nach Upload-Datum. Vollständige Liste unter „Meine Dateien".</p>
                 </div>
-                <a class="chip" href="{{ url_for('admin_uploads') }}">Admin-Ansicht</a>
+                <a class="chip" href="{{ url_for('my_uploads') }}">Alle anzeigen</a>
             </div>
             <div class="table">
                 <div class="table__header">
@@ -207,7 +138,7 @@
     </main>
 
     <footer class="footer">
-        <p>HTL Upload • Elegantes Ordner-Management (Demo-Modus)</p>
+        <p>HTL Upload • Persönliche Cloud für deine Dateien</p>
     </footer>
 </body>
 </html>

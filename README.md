@@ -3,13 +3,18 @@
 Elegante Weboberfläche zum Hochladen kompletter Ordner. Fürs Ausprobieren läuft alles direkt lokal mit einer integrierten SQLite-Datei; eine zentrale Online-Datenbank (z. B. PostgreSQL) kannst du später per `DATABASE_URL` anbinden.
 
 ## Features
-- Upload kompletter Ordner (inklusive Unterordner) per Browser (`webkitdirectory`).
-- Speicherung auf dem Server-Dateisystem unter `uploads/<jahr>/<monat>/...`.
-- Protokoll in einer Datenbank: Out of the box SQLite (lokale `database.db`), optional zentral erreichbar via `DATABASE_URL` (z. B. PostgreSQL) inklusive Download-Links.
-- Moderner, dunkler Look mit Fokus auf Übersichtlichkeit.
-- Upload einer Excel-Namensliste (.xlsx) mit Anzeige aller Vor- und Nachnamen auf der Seite; alle Namen werden in der Tabelle `persons` gespeichert.
-- Gast-Demo ohne Anmeldung (2 Uploads pro Tag), wahlweise Registrierung mit Tarifen Free/Premium und Premium-Trial (Free: 5 Uploads/Tag, Premium/Trial: unbegrenzt).
-- Admin-Bereich (`/admin/uploads`) mit Historie, Details und Download-Links; geschütztes Admin-Panel unter `/admin`.
+- Login-Pflicht mit Benutzerkonten (E-Mail + Passwort, gehasht gespeichert) und Plänen Free/Premium/Trial.
+- Upload kompletter Ordner (inklusive Unterordner) per Browser (`webkitdirectory`) – jedem Upload wird der aktuelle Benutzer zugeordnet.
+- Persönliche Cloud-Ansicht unter „Meine Dateien“: alle eigenen Uploads mit Download- und Lösch-Buttons (löscht auch die physische Datei).
+- Speicherung auf dem Server-Dateisystem unter `uploads/<jahr>/<monat>/...`; Metadaten in SQLite (lokal) oder optional in einer zentralen DB via `DATABASE_URL` (z. B. PostgreSQL).
+- Upload einer Excel-Namensliste (.xlsx) mit Vor-/Nachname; alle Namen landen in der Tabelle `persons` und gehören zum jeweiligen Nutzer.
+- Admin-Bereich (`/admin/uploads`, `/admin`) für vollständige Historie aller Nutzer (nur `is_admin=True`).
+
+### Benutzer & Quoten
+- Free: 5 Uploads pro Tag und Benutzer.
+- Trial/Premium: unbegrenzt. Trial kann über die Einstellungen gestartet werden.
+- Alle Passwörter werden gehasht gespeichert (`werkzeug.security`), Sessions laufen über Flask mit `SECRET_KEY`.
+- Downloads/Löschungen sind nur im eingeloggten Zustand möglich; pro Datei wird geprüft, ob sie dem aktuellen Nutzer gehört (oder ob `is_admin=True`).
 
 ## Voraussetzungen
 - Python 3.10 oder neuer (prüfen mit `python --version` oder `python3 --version`).
@@ -54,11 +59,11 @@ Elegante Weboberfläche zum Hochladen kompletter Ordner. Fürs Ausprobieren läu
    - Im „Run“-Toolfenster siehst du die Ausgabe `Running on http://127.0.0.1:5000`.
 
 7. **Seite im Browser öffnen und testen**
-   - `http://localhost:5000` aufrufen. Zuerst erscheint die Landing mit kurzer Erklärung.
-   - **Gast-Demo:** Auf „Gast-Demo starten“ klicken (2 Uploads/Tag), ohne Login testen.
-   - **Registrieren/Anmelden:** E-Mail + Passwort eingeben, Tarif wählen (Free = 5 Uploads pro Tag, Premium = unbegrenzt, Trial = 7 Tage). Nach Login erscheint eine Erfolgsmeldung.
-   - **Uploads:** Ordner oder Excel-Namensliste auswählen und hochladen – Gast- und angemeldete Nutzer werden akzeptiert.
-   - **Historie & Downloads:** `http://localhost:5000/admin/uploads` (Admin-Login erforderlich) zeigt alle Uploads mit Download-Link. Fehler/Logs stehen im PhpStorm-Run-Fenster.
+   - `http://localhost:5000` aufrufen. Die Landing erklärt den Funktionsumfang; Login/Registrierung erfolgt direkt dort.
+   - **Registrieren/Anmelden:** E-Mail + Passwort ausfüllen (Passwort-Wiederholung nötig). Plan wählen (Free = 5 Uploads/Tag, Premium/Trial = unbegrenzt). Nach Login wirst du in den Workspace geleitet.
+   - **Uploads:** Im Workspace (`/app`) Ordner oder Excel-Namensliste hochladen. Jede Datei wird deinem Benutzerkonto zugeordnet.
+   - **Meine Dateien:** Unter `/my/uploads` siehst du alle eigenen Uploads, kannst sie herunterladen oder löschen (löscht auch die Datei auf dem Server).
+   - **Historie & Downloads (Admin):** `http://localhost:5000/admin/uploads` zeigt alle Uploads aller Nutzer, nur erreichbar mit `is_admin=True`.
 
 > Hinweis: Ordner-Upload funktioniert primär in Chromium-basierten Browsern. Safari/Firefox zeigen ggf. nur Dateiauswahl.
 

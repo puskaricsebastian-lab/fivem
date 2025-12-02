@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>HTL Upload | Meine Dateien</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body class="theme-{{ theme }}">
+    <header class="topbar">
+        <div class="topbar__brand">
+            <span class="logo">HTL Upload</span>
+            <span class="pill">Meine Cloud</span>
+        </div>
+        <nav class="topbar__nav">
+            <a href="{{ url_for('app_home') }}">Upload</a>
+            <a href="{{ url_for('my_uploads') }}" class="active">Meine Dateien</a>
+            <a href="{{ url_for('settings') }}">Einstellungen</a>
+            {% if user and user.is_admin %}
+                <a href="{{ url_for('admin_panel') }}">Admin</a>
+            {% endif %}
+        </nav>
+        <div class="topbar__actions">
+            <form action="{{ url_for('logout') }}" method="post">
+                <button class="button button--ghost" type="submit">Logout</button>
+            </form>
+        </div>
+    </header>
+
+    <main class="panel">
+        <div class="panel__header">
+            <div>
+                <p class="eyebrow">Meine Dateien</p>
+                <h1>Uploads von {{ user.email }}</h1>
+                <p class="subtitle">Alle Dateien, die du hochgeladen hast. Downloads funktionieren nur, wenn du eingeloggt bist.</p>
+            </div>
+            <a class="button button--ghost" href="{{ url_for('app_home') }}">Neuen Upload starten</a>
+        </div>
+
+        {% if success_message %}
+        <div class="alert alert--success">{{ success_message }}</div>
+        {% elif error_message %}
+        <div class="alert alert--error">{{ error_message }}</div>
+        {% endif %}
+
+        <div class="table table--mine">
+            <div class="table__header">
+                <span>Datei</span>
+                <span>Typ</span>
+                <span>Größe</span>
+                <span>Datum</span>
+                <span class="nowrap">Aktionen</span>
+            </div>
+            {% for upload in uploads %}
+            <div class="table__row">
+                <span class="nowrap">{{ upload.original_filename }}</span>
+                <span class="nowrap">{{ upload.content_type }}</span>
+                <span>{{ (upload.size_bytes / 1024)|round(1) }} KB</span>
+                <span>{{ upload.upload_timestamp }}</span>
+                <span class="actions">
+                    <a class="chip" href="{{ url_for('download', upload_id=upload.id) }}">Download</a>
+                    <form class="inline" action="{{ url_for('delete_upload', upload_id=upload.id) }}" method="post" onsubmit="return confirm('Wirklich löschen?');">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                        <button class="chip chip--danger" type="submit">Löschen</button>
+                    </form>
+                </span>
+            </div>
+            {% else %}
+            <div class="table__empty">Noch keine Uploads vorhanden.</div>
+            {% endfor %}
+        </div>
+    </main>
+</body>
+</html>
