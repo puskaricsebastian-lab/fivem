@@ -1,8 +1,17 @@
 import os
-from datetime import datetime
-from typing import Iterable, List
+from datetime import date, datetime, timedelta
+from typing import Iterable, List, Optional
 
-from sqlalchemy import Column, DateTime, ForeignKey, Integer, String, create_engine
+from sqlalchemy import (
+    Column,
+    Date,
+    DateTime,
+    ForeignKey,
+    Integer,
+    String,
+    create_engine,
+    func,
+)
 from sqlalchemy.orm import Session, declarative_base, relationship, scoped_session, sessionmaker
 
 DATABASE_URL = os.environ.get("DATABASE_URL")
@@ -18,6 +27,7 @@ class Upload(Base):
     __tablename__ = "uploads"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     original_filename = Column(String(255), nullable=False)
     server_path = Column(String(1024), nullable=False)
     size_bytes = Column(Integer, nullable=False)
@@ -25,6 +35,7 @@ class Upload(Base):
     upload_timestamp = Column(DateTime, default=datetime.utcnow, nullable=False)
     uploader_ip = Column(String(255), nullable=True)
 
+    uploader = relationship("User", back_populates="uploads")
     persons = relationship("Person", back_populates="upload", cascade="all, delete-orphan", lazy="joined")
 
 
@@ -38,6 +49,20 @@ class Person(Base):
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
 
     upload = relationship("Upload", back_populates="persons")
+
+
+class User(Base):
+    __tablename__ = "users"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    email = Column(String(255), unique=True, nullable=False)
+    password_hash = Column(String(255), nullable=False)
+    plan = Column(String(50), default="free", nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    daily_uploads_count = Column(Integer, default=0, nullable=False)
+    daily_uploads_date = Column(Date, nullable=True)
+
+    uploads = relationship("Upload", back_populates="uploader")
 
 
 def init_db() -> None:
@@ -68,6 +93,7 @@ def fetch_upload(session: Session, upload_id: int) -> Upload | None:
 def add_upload(
     session: Session,
     *,
+    user_id: Optional[int],
     original_filename: str,
     server_path: str,
     size_bytes: int,
@@ -75,6 +101,7 @@ def add_upload(
     uploader_ip: str | None = None,
 ) -> Upload:
     upload = Upload(
+        user_id=user_id,
         original_filename=original_filename,
         server_path=server_path,
         size_bytes=size_bytes,
@@ -93,3 +120,35 @@ def add_person_rows(session: Session, upload: Upload, names: Iterable[dict]) -> 
         for item in names
     ]
     session.add_all(people)
+
+
+def get_user_by_email(session: Session, email: str) -> Optional[User]:
+    return session.query(User).filter(func.lower(User.email) == email.lower()).one_or_none()
+
+
+def get_user_by_id(session: Session, user_id: int) -> Optional[User]:
+    return session.query(User).filter(User.id == user_id).one_or_none()
+
+
+def create_user(session: Session, email: str, password_hash: str, plan: str = "free") -> User:
+    user = User(email=email, password_hash=password_hash, plan=plan)
+    session.add(user)
+    session.flush()
+    return user
+
+
+def count_uploads_for_date(session: Session, user_id: int, target_date: date) -> int:
+    start = datetime.combine(target_date, datetime.min.time())
+    end = start + timedelta(days=1)
+    return (
+        session.query(func.count(Upload.id))
+        .filter(Upload.user_id == user_id, Upload.upload_timestamp >= start, Upload.upload_timestamp < end)
+        .scalar()
+    )
+
+
+def reset_daily_counter_if_needed(user: User) -> None:
+    today = date.today()
+    if user.daily_uploads_date != today:
+        user.daily_uploads_date = today
+        user.daily_uploads_count = 0

@@ -22,6 +22,7 @@
             <div class="table__header">
                 <span>ID</span>
                 <span>Dateiname</span>
+                <span>Nutzer</span>
                 <span>Typ</span>
                 <span>Größe</span>
                 <span>Datum</span>
@@ -31,6 +32,7 @@
             <div class="table__row">
                 <span class="nowrap">#{{ upload.id }}</span>
                 <span class="nowrap">{{ upload.original_filename }}</span>
+                <span class="nowrap">{{ upload.uploader.email if upload.uploader else '–' }}</span>
                 <span class="nowrap">{{ upload.content_type }}</span>
                 <span>{{ (upload.size_bytes / 1024)|round(1) }} KB</span>
                 <span>{{ upload.upload_timestamp }}</span>

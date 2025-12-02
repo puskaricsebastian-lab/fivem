@@ -1,4 +1,5 @@
-from datetime import datetime
+import os
+from datetime import date, datetime
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -13,26 +14,58 @@ from flask import (  # noqa: E402
     render_template,
     request,
     send_file,
+    session as flask_session,
     url_for,
 )
 from openpyxl import load_workbook  # noqa: E402
 from werkzeug.datastructures import FileStorage  # noqa: E402
+from werkzeug.security import check_password_hash, generate_password_hash  # noqa: E402
 
 from models import (  # noqa: E402
+    User,
     add_person_rows,
     add_upload,
+    count_uploads_for_date,
+    create_user,
     fetch_recent_uploads,
     fetch_upload,
     fetch_uploads_desc,
     get_session,
+    get_user_by_email,
+    get_user_by_id,
     init_db,
+    reset_daily_counter_if_needed,
 )
 
 BASE_DIR = Path(__file__).resolve().parent
 
 app = Flask(__name__)
+app.config["SECRET_KEY"] = os.environ.get("SECRET_KEY", "dev-secret-key")
 app.config["MAX_CONTENT_LENGTH"] = 512 * 1024 * 1024  # 512 MB limit
 ALLOWED_EXCEL_SUFFIXES = {".xlsx"}
+FREE_DAILY_LIMIT = 5
+
+
+def get_current_user(db_session) -> User | None:
+    user_id = flask_session.get("user_id")
+    if not user_id:
+        return None
+    return get_user_by_id(db_session, user_id)
+
+
+def enforce_quota(db_session, user: User, pending_uploads: int) -> tuple[bool, int]:
+    """Return (allowed, remaining) for today."""
+
+    reset_daily_counter_if_needed(user)
+    today_count = count_uploads_for_date(db_session, user.id, date.today())
+    if user.plan == "premium":
+        return True, -1
+
+    remaining = FREE_DAILY_LIMIT - today_count
+    if pending_uploads > remaining:
+        return False, remaining
+
+    return True, remaining - pending_uploads
 
 
 def sanitize_relative_path(path: str) -> Path:
@@ -60,7 +93,14 @@ def build_storage_paths(folder_label: str, relative: Path) -> tuple[Path, Path]:
     return destination, relative_server
 
 
-def save_file(session, file_storage: FileStorage, folder_label: str, uploader_ip: str | None):
+def save_file(
+    session,
+    file_storage: FileStorage,
+    folder_label: str,
+    uploader_ip: str | None,
+    *,
+    user_id: int | None,
+):
     relative = sanitize_relative_path(file_storage.filename)
     if not relative.parts:
         return None
@@ -73,6 +113,7 @@ def save_file(session, file_storage: FileStorage, folder_label: str, uploader_ip
     content_type = file_storage.mimetype or "application/octet-stream"
     upload = add_upload(
         session,
+        user_id=user_id,
         original_filename=str(relative),
         server_path=str(server_relative),
         size_bytes=size,
@@ -121,17 +162,22 @@ def parse_excel_names(file_storage):
 
 
 def render_home(*, names=None, success_message=None, error_message=None):
-    session = get_session()
+    db_session = get_session()
     try:
-        uploads = fetch_recent_uploads(session)
+        user = get_current_user(db_session)
+        uploads = fetch_recent_uploads(db_session)
+        today_count = count_uploads_for_date(db_session, user.id, date.today()) if user else 0
     finally:
-        session.close()
+        db_session.close()
     return render_template(
         "index.html",
         uploads=uploads,
         names=names or [],
         success_message=success_message,
         error_message=error_message,
+        user=user,
+        daily_limit=FREE_DAILY_LIMIT,
+        today_count=today_count,
     )
 
 
@@ -144,6 +190,62 @@ def index():
     return render_home(success_message=success_message)
 
 
+@app.route("/register", methods=["POST"])
+def register():
+    email = (request.form.get("email") or "").strip()
+    password = request.form.get("password") or ""
+    plan = (request.form.get("plan") or "free").strip().lower()
+    if plan not in {"free", "premium"}:
+        plan = "free"
+
+    if not email or not password:
+        return render_home(error_message="Bitte E-Mail und Passwort ausfüllen.")
+
+    db_session = get_session()
+    try:
+        if get_user_by_email(db_session, email):
+            return render_home(error_message="Diese E-Mail ist bereits registriert.")
+
+        password_hash = generate_password_hash(password)
+        user = create_user(db_session, email=email, password_hash=password_hash, plan=plan)
+        db_session.commit()
+        flask_session["user_id"] = user.id
+    except Exception:  # noqa: BLE001
+        db_session.rollback()
+        return render_home(error_message="Registrierung fehlgeschlagen. Bitte später erneut versuchen.")
+    finally:
+        db_session.close()
+
+    tier_text = "Premium" if plan == "premium" else "Free"
+    return render_home(success_message=f"Registrierung erfolgreich – {tier_text}-Tarif aktiv.")
+
+
+@app.route("/login", methods=["POST"])
+def login():
+    email = (request.form.get("email") or "").strip()
+    password = request.form.get("password") or ""
+
+    if not email or not password:
+        return render_home(error_message="Bitte E-Mail und Passwort ausfüllen.")
+
+    db_session = get_session()
+    try:
+        user = get_user_by_email(db_session, email)
+        if not user or not check_password_hash(user.password_hash, password):
+            return render_home(error_message="Login fehlgeschlagen. Bitte E-Mail und Passwort prüfen.")
+        flask_session["user_id"] = user.id
+    finally:
+        db_session.close()
+
+    return render_home(success_message="Login erfolgreich. Du kannst jetzt hochladen.")
+
+
+@app.route("/logout", methods=["POST"])
+def logout():
+    flask_session.pop("user_id", None)
+    return render_home(success_message="Abgemeldet.")
+
+
 @app.route("/upload", methods=["POST"])
 def upload():
     files = request.files.getlist("files")
@@ -151,24 +253,36 @@ def upload():
     folder_label = sanitize_folder_label(folder_label_input)
 
     if not files:
-        return jsonify({"error": "Keine Dateien erhalten."}), 400
+        return render_home(error_message="Keine Dateien erhalten.")
 
-    session = get_session()
-    saved = 0
+    db_session = get_session()
     try:
+        user = get_current_user(db_session)
+        if not user:
+            return render_home(error_message="Bitte zuerst einloggen, bevor du hochlädst."), 401
+
+        allowed, remaining = enforce_quota(db_session, user, len(files))
+        if not allowed:
+            msg = (
+                "Freies Kontingent erschöpft (maximal "
+                f"{FREE_DAILY_LIMIT} Uploads pro Tag, verbleibend: {remaining}). Upgrade auf Premium für unbegrenzte Uploads."
+            )
+            return render_home(error_message=msg), 403
+
+        saved = 0
         for file_storage in files:
-            uploaded = save_file(session, file_storage, folder_label, request.remote_addr)
+            uploaded = save_file(db_session, file_storage, folder_label, request.remote_addr, user_id=user.id)
             if uploaded:
                 saved += 1
         if saved == 0:
-            session.rollback()
-            return jsonify({"error": "Es konnte nichts gespeichert werden."}), 400
-        session.commit()
+            db_session.rollback()
+            return render_home(error_message="Es konnte nichts gespeichert werden."), 400
+        db_session.commit()
     except Exception:  # noqa: BLE001
-        session.rollback()
-        return jsonify({"error": "Speichern fehlgeschlagen."}), 500
+        db_session.rollback()
+        return render_home(error_message="Speichern fehlgeschlagen."), 500
     finally:
-        session.close()
+        db_session.close()
 
     return redirect(url_for("index", success="true"))
 
@@ -191,21 +305,33 @@ def upload_namensliste():
             error_message="Die Namensliste konnte nicht verarbeitet werden. Bitte das offizielle Template verwenden."
         )
 
-    session = get_session()
+    db_session = get_session()
     folder_label = sanitize_folder_label(Path(file_storage.filename).stem)
     try:
+        user = get_current_user(db_session)
+        if not user:
+            return render_home(error_message="Bitte zuerst einloggen, bevor du hochlädst."), 401
+
+        allowed, remaining = enforce_quota(db_session, user, 1)
+        if not allowed:
+            msg = (
+                "Freies Kontingent erschöpft (maximal "
+                f"{FREE_DAILY_LIMIT} Uploads pro Tag, verbleibend: {remaining}). Upgrade auf Premium für unbegrenzte Uploads."
+            )
+            return render_home(error_message=msg), 403
+
         file_storage.stream.seek(0)
-        uploaded = save_file(session, file_storage, folder_label, request.remote_addr)
+        uploaded = save_file(db_session, file_storage, folder_label, request.remote_addr, user_id=user.id)
         if not uploaded:
-            session.rollback()
+            db_session.rollback()
             return render_home(error_message="Es konnte nichts gespeichert werden.")
-        add_person_rows(session, uploaded, names)
-        session.commit()
+        add_person_rows(db_session, uploaded, names)
+        db_session.commit()
     except Exception:  # noqa: BLE001
-        session.rollback()
+        db_session.rollback()
         return render_home(error_message="Die Namensliste konnte nicht gespeichert werden.")
     finally:
-        session.close()
+        db_session.close()
 
     return render_home(
         names=names,
@@ -215,23 +341,31 @@ def upload_namensliste():
 
 @app.route("/admin/uploads")
 def admin_uploads():
-    session = get_session()
+    db_session = get_session()
     try:
-        uploads = fetch_uploads_desc(session)
+        user = get_current_user(db_session)
+        if not user:
+            return render_home(error_message="Bitte einloggen, um den Admin-Bereich zu sehen."), 401
+
+        uploads = fetch_uploads_desc(db_session)
     finally:
-        session.close()
+        db_session.close()
     return render_template("admin_uploads.html", uploads=uploads)
 
 
 @app.route("/admin/uploads/<int:upload_id>")
 def admin_upload_detail(upload_id: int):
-    session = get_session()
+    db_session = get_session()
     try:
-        upload_obj = fetch_upload(session, upload_id)
+        user = get_current_user(db_session)
+        if not user:
+            return render_home(error_message="Bitte einloggen, um den Admin-Bereich zu sehen."), 401
+
+        upload_obj = fetch_upload(db_session, upload_id)
         if not upload_obj:
             abort(404)
     finally:
-        session.close()
+        db_session.close()
     return render_template("admin_upload_detail.html", upload=upload_obj)
 
 

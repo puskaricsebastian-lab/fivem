@@ -26,6 +26,14 @@
                 <p class="detail__value">{{ upload.original_filename }}</p>
             </div>
             <div>
+                <p class="eyebrow">Nutzer</p>
+                <p class="detail__value">{{ upload.uploader.email if upload.uploader else '–' }}</p>
+            </div>
+            <div>
+                <p class="eyebrow">Plan</p>
+                <p class="detail__value">{{ upload.uploader.plan if upload.uploader else 'unbekannt' }}</p>
+            </div>
+            <div>
                 <p class="eyebrow">Server-Pfad</p>
                 <p class="detail__value mono">{{ upload.server_path }}</p>
             </div>

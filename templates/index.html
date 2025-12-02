@@ -22,12 +22,70 @@
             <p class="hero__text">Drag & Drop oder per Klick auswählen. Unterstützt das Hochladen kompletter Ordnerstrukturen und Excel-Listen.</p>
             <div class="hero__footer">
                 <span class="chip">512 MB Limit pro Anfrage</span>
-                <span class="chip">Zentrale Datenbank</span>
+                <span class="chip">Login-Pflicht</span>
             </div>
         </div>
     </header>
 
     <main>
+        {% if user %}
+        <section class="panel panel--inline">
+            <div>
+                <p class="eyebrow">Angemeldet</p>
+                <h2>{{ user.email }}</h2>
+                <p class="subtitle">Plan: {{ 'Premium' if user.plan == 'premium' else 'Free (5 Uploads/Tag)' }}</p>
+                {% if user.plan == 'premium' %}
+                <p class="chip chip--success">Unbegrenzte Uploads</p>
+                {% else %}
+                <p class="chip">Uploads heute: {{ today_count }}/{{ daily_limit }}</p>
+                {% endif %}
+            </div>
+            <form class="auth__form" action="{{ url_for('logout') }}" method="post">
+                <button class="button button--ghost" type="submit">Logout</button>
+            </form>
+        </section>
+        {% else %}
+        <section class="panel auth">
+            <div>
+                <p class="eyebrow">Neu hier?</p>
+                <h2>Registrieren</h2>
+                <form class="auth__form" action="{{ url_for('register') }}" method="post">
+                    <label class="field">
+                        <span>E-Mail</span>
+                        <input type="email" name="email" required placeholder="you@example.com">
+                    </label>
+                    <label class="field">
+                        <span>Passwort</span>
+                        <input type="password" name="password" required placeholder="••••••">
+                    </label>
+                    <label class="field">
+                        <span>Tarif</span>
+                        <select name="plan">
+                            <option value="free">Free (5 Uploads/Tag)</option>
+                            <option value="premium">Premium (unbegrenzt)</option>
+                        </select>
+                    </label>
+                    <button class="button" type="submit">Account anlegen</button>
+                </form>
+            </div>
+            <div>
+                <p class="eyebrow">Bereits dabei?</p>
+                <h2>Einloggen</h2>
+                <form class="auth__form" action="{{ url_for('login') }}" method="post">
+                    <label class="field">
+                        <span>E-Mail</span>
+                        <input type="email" name="email" required placeholder="you@example.com">
+                    </label>
+                    <label class="field">
+                        <span>Passwort</span>
+                        <input type="password" name="password" required placeholder="••••••">
+                    </label>
+                    <button class="button button--ghost" type="submit">Anmelden</button>
+                </form>
+            </div>
+        </section>
+        {% endif %}
+
         {% if success_message %}
         <div class="alert alert--success">
             {{ success_message }}
@@ -43,7 +101,7 @@
                 <div>
                     <p class="eyebrow">Upload</p>
                     <h2>Deine Ordner hochladen</h2>
-                    <p class="subtitle">Wähle einen Ordner und optional einen Namen, unter dem er gespeichert wird.</p>
+                    <p class="subtitle">Wähle einen Ordner und optional einen Namen, unter dem er gespeichert wird. Uploads werden nur gespeichert, wenn du eingeloggt bist.</p>
                 </div>
             </div>
             <form class="upload" action="{{ url_for('upload') }}" method="post" enctype="multipart/form-data">
@@ -70,7 +128,7 @@
                 <div>
                     <p class="eyebrow">Namensliste</p>
                     <h2>Namensliste hochladen</h2>
-                    <p class="subtitle">Lade eine Excel-Datei (.xlsx) mit den Spalten Vorname und Nachname hoch.</p>
+                    <p class="subtitle">Lade eine Excel-Datei (.xlsx) mit den Spalten Vorname und Nachname hoch. Nur angemeldete Nutzer können speichern.</p>
                 </div>
             </div>
             <form class="upload" action="{{ url_for('upload_namensliste') }}" method="post" enctype="multipart/form-data">
