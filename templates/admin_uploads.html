@@ -6,14 +6,14 @@
     <title>Admin | Upload-Historie</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 </head>
-<body class="admin">
+<body class="admin theme-{{ theme }}">
     <header class="header">
         <div class="header__content">
             <h1>Upload-Historie</h1>
             <p class="subtitle">Alle Uploads aus der aktuellen Datenbank (Standard: lokale SQLite) – sortiert nach Datum (neueste zuerst).</p>
         </div>
         <div class="header__actions">
-            <a class="button button--ghost" href="{{ url_for('index') }}">Zurück zur Hauptseite</a>
+            <a class="button button--ghost" href="{{ url_for('app_home') }}">Zurück zur Hauptseite</a>
         </div>
     </header>
 

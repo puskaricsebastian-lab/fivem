@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import Iterable, List, Optional
 
 from sqlalchemy import (
+    Boolean,
     Column,
     Date,
     DateTime,
@@ -62,6 +63,9 @@ class User(Base):
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     daily_uploads_count = Column(Integer, default=0, nullable=False)
     daily_uploads_date = Column(Date, nullable=True)
+    trial_expires_at = Column(DateTime, nullable=True)
+    theme = Column(String(20), default="dark", nullable=False)
+    is_admin = Column(Boolean, default=False, nullable=False)
 
     uploads = relationship("Upload", back_populates="uploader")
 

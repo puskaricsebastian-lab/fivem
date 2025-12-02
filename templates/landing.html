@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>HTL Upload | Willkommen</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body class="theme-{{ theme }}">
+    <header class="hero">
+        <div class="hero__content">
+            <p class="eyebrow">Was diese Seite macht</p>
+            <h1>HTL Upload: Ordner, Dateien & Namenslisten im Browser ablegen</h1>
+            <p class="subtitle">Teste den Upload sofort im Gastmodus oder registriere dich für mehr Kontingent. Alle Uploads landen im lokalen Demo-Speicher (SQLite) und können später auf eine zentrale Datenbank umziehen.</p>
+            <div class="hero__actions">
+                <a class="button" href="{{ url_for('app_home') }}">Gast-Demo starten</a>
+                <a class="button button--ghost" href="{{ url_for('settings') }}">Theme/Trial anpassen</a>
+            </div>
+            <ul class="feature-list">
+                <li>📁 Ganze Ordner & Dateien hochladen</li>
+                <li>🧾 Excel-Namensliste (Vorname/Nachname) verarbeiten</li>
+                <li>🌐 Downloads über jeden Browser abrufbar</li>
+                <li>🔒 Optionales Login mit Free/Premium/Trial</li>
+                <li>🛠️ Admin-Panel für vollständige Historie</li>
+            </ul>
+        </div>
+        <div class="hero__card">
+            <p class="hero__label">Quickstart</p>
+            <p class="hero__text">1) Auf „Gast-Demo starten" klicken<br>2) Uploads testen<br>3) Später anmelden oder Premium-Trial aktivieren</p>
+            <div class="hero__footer">
+                <span class="chip">Gast: 2 Uploads/Tag</span>
+                <span class="chip">Free: 5 Uploads/Tag</span>
+                <span class="chip chip--success">Premium/Trial: unbegrenzt</span>
+            </div>
+        </div>
+    </header>
+</body>
+</html>

@@ -8,8 +8,8 @@ Elegante Weboberfläche zum Hochladen kompletter Ordner. Fürs Ausprobieren läu
 - Protokoll in einer Datenbank: Out of the box SQLite (lokale `database.db`), optional zentral erreichbar via `DATABASE_URL` (z. B. PostgreSQL) inklusive Download-Links.
 - Moderner, dunkler Look mit Fokus auf Übersichtlichkeit.
 - Upload einer Excel-Namensliste (.xlsx) mit Anzeige aller Vor- und Nachnamen auf der Seite; alle Namen werden in der Tabelle `persons` gespeichert.
-- Login-Pflicht mit Registrierung (E-Mail + Passwort), Tarifwahl (Free/Premium) und täglichem Freikontingent für Free (5 Uploads pro Tag, pro Datei gezählt).
-- Admin-Bereich (`/admin/uploads`) mit Historie, Details und Download-Links.
+- Gast-Demo ohne Anmeldung (2 Uploads pro Tag), wahlweise Registrierung mit Tarifen Free/Premium und Premium-Trial (Free: 5 Uploads/Tag, Premium/Trial: unbegrenzt).
+- Admin-Bereich (`/admin/uploads`) mit Historie, Details und Download-Links; geschütztes Admin-Panel unter `/admin`.
 
 ## Voraussetzungen
 - Python 3.10 oder neuer (prüfen mit `python --version` oder `python3 --version`).
@@ -54,10 +54,11 @@ Elegante Weboberfläche zum Hochladen kompletter Ordner. Fürs Ausprobieren läu
    - Im „Run“-Toolfenster siehst du die Ausgabe `Running on http://127.0.0.1:5000`.
 
 7. **Seite im Browser öffnen und testen**
-   - `http://localhost:5000` aufrufen.
-   - **Registrieren/Anmelden:** E-Mail + Passwort eingeben, Tarif wählen (Free = 5 Uploads pro Tag, Premium = unbegrenzt). Nach Login erscheint eine grüne Erfolgsmeldung.
-   - **Uploads:** Ordner oder Excel-Namensliste auswählen und hochladen. Nur eingeloggt werden Uploads gespeichert; Free-Tarif limitiert pro Tag.
-   - **Historie & Downloads:** `http://localhost:5000/admin/uploads` zeigt alle Uploads mit Download-Link. Fehler/Logs stehen im PhpStorm-Run-Fenster.
+   - `http://localhost:5000` aufrufen. Zuerst erscheint die Landing mit kurzer Erklärung.
+   - **Gast-Demo:** Auf „Gast-Demo starten“ klicken (2 Uploads/Tag), ohne Login testen.
+   - **Registrieren/Anmelden:** E-Mail + Passwort eingeben, Tarif wählen (Free = 5 Uploads pro Tag, Premium = unbegrenzt, Trial = 7 Tage). Nach Login erscheint eine Erfolgsmeldung.
+   - **Uploads:** Ordner oder Excel-Namensliste auswählen und hochladen – Gast- und angemeldete Nutzer werden akzeptiert.
+   - **Historie & Downloads:** `http://localhost:5000/admin/uploads` (Admin-Login erforderlich) zeigt alle Uploads mit Download-Link. Fehler/Logs stehen im PhpStorm-Run-Fenster.
 
 > Hinweis: Ordner-Upload funktioniert primär in Chromium-basierten Browsern. Safari/Firefox zeigen ggf. nur Dateiauswahl.
 
