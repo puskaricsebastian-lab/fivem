@@ -185,6 +185,7 @@ main { padding: 16px 8vw 64px; display: grid; gap: 24px; }
     overflow: hidden;
     transition: border-color 150ms ease;
 }
+.dropzone--hover { border-color: var(--accent-strong); background: rgba(100, 181, 246, 0.05); }
 .dropzone:hover { border-color: var(--accent); }
 .dropzone input[type="file"] {
     position: absolute;
@@ -240,7 +241,7 @@ main { padding: 16px 8vw 64px; display: grid; gap: 24px; }
 }
 .table--mine .table__header,
 .table--mine .table__row {
-    grid-template-columns: 1.6fr 1.2fr 0.8fr 1fr 1fr;
+    grid-template-columns: 1.4fr 1.2fr 1fr 0.8fr 0.9fr 1fr;
 }
 .table--names .table__header,
 .table--names .table__row {
@@ -254,7 +255,15 @@ main { padding: 16px 8vw 64px; display: grid; gap: 24px; }
 .settings { display: grid; gap: 24px; }
 .settings__form { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; }
 .field--inline { flex: 1; }
+.table__filters { display: flex; justify-content: flex-end; margin: 12px 0; }
+.table__filters .field--inline { max-width: 220px; }
 .muted { color: var(--muted); font-size: 14px; }
+
+.progress { position: relative; height: 8px; background: var(--border); border-radius: 999px; margin: 8px 0 12px; overflow: hidden; }
+.progress__bar { position: absolute; left: 0; top: 0; bottom: 0; width: 0; background: linear-gradient(90deg, var(--accent), var(--accent-strong)); transition: width 120ms ease; }
+.progress__status { font-size: 12px; color: var(--muted); }
+
+.storage__label { margin: 8px 0 0; color: var(--muted); font-size: 14px; }
 
 .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; margin-bottom: 16px; }
 .stat { background: rgba(255,255,255,0.04); border: 1px solid var(--border); border-radius: var(--radius); padding: 12px 14px; box-shadow: var(--shadow); }

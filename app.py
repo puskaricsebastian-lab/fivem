@@ -33,18 +33,26 @@ from models import (  # noqa: E402
     fetch_uploads_desc,
     get_session,
     get_user_by_email,
+    get_user_by_username,
     get_user_by_id,
     init_db,
     reset_daily_counter_if_needed,
+    user_storage_usage,
 )
 
 BASE_DIR = Path(__file__).resolve().parent
 
 app = Flask(__name__)
 app.config["SECRET_KEY"] = os.environ.get("SECRET_KEY", "dev-secret-key")
-app.config["MAX_CONTENT_LENGTH"] = 512 * 1024 * 1024  # 512 MB limit
+MAX_UPLOAD_MB = int(os.environ.get("MAX_UPLOAD_MB", "500"))
+MAX_FILE_SIZE_MB = int(os.environ.get("MAX_FILE_SIZE_MB", str(MAX_UPLOAD_MB)))
+app.config["MAX_CONTENT_LENGTH"] = MAX_UPLOAD_MB * 1024 * 1024
+MAX_FILE_SIZE_BYTES = MAX_FILE_SIZE_MB * 1024 * 1024
+MAX_STORAGE_PER_USER_MB = os.environ.get("MAX_STORAGE_PER_USER_MB")
+MAX_STORAGE_PER_USER_BYTES = int(MAX_STORAGE_PER_USER_MB) * 1024 * 1024 if MAX_STORAGE_PER_USER_MB else None
 app.config["SESSION_COOKIE_HTTPONLY"] = True
 app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
+app.permanent_session_lifetime = timedelta(days=14)
 ALLOWED_EXCEL_SUFFIXES = {".xlsx"}
 FREE_DAILY_LIMIT = 5
 
@@ -108,6 +116,44 @@ def enforce_quota(db_session, user: User, pending_uploads: int) -> tuple[bool, i
         return False, remaining
 
     return True, remaining - pending_uploads
+
+
+def file_size_bytes(file_storage: FileStorage) -> int:
+    if file_storage.content_length is not None:
+        return int(file_storage.content_length)
+
+    try:
+        current = file_storage.stream.tell()
+        file_storage.stream.seek(0, os.SEEK_END)
+        size = file_storage.stream.tell()
+        file_storage.stream.seek(current)
+        return int(size)
+    except Exception:
+        return 0
+
+
+def validate_size_and_capacity(db_session, user: User, files: list[FileStorage]) -> tuple[bool, str | None]:
+    measured = []
+    for file_storage in files:
+        size = file_size_bytes(file_storage)
+        if size > MAX_FILE_SIZE_BYTES:
+            readable = round(MAX_FILE_SIZE_BYTES / (1024 * 1024))
+            return False, f"Datei '{file_storage.filename}' ist größer als {readable} MB."
+        measured.append(size)
+        try:
+            file_storage.stream.seek(0)
+        except Exception:
+            pass
+
+    if MAX_STORAGE_PER_USER_BYTES:
+        current_usage = user_storage_usage(db_session, user.id)
+        incoming = sum(measured)
+        if current_usage + incoming > MAX_STORAGE_PER_USER_BYTES:
+            remaining = max(0, MAX_STORAGE_PER_USER_BYTES - current_usage)
+            remaining_mb = round(remaining / (1024 * 1024), 2)
+            return False, f"Speicherlimit erreicht. Verfügbar: {remaining_mb} MB. Bitte lösche Dateien oder wähle kleinere Uploads."
+
+    return True, None
 
 
 def sanitize_relative_path(path: str) -> Path:
@@ -208,6 +254,7 @@ def render_workspace(db_session, user: User, *, names=None, success_message=None
     today_count = count_uploads_for_date(db_session, user.id, date.today())
     theme = get_theme(user)
     ensure_csrf_token()
+    usage_bytes = user_storage_usage(db_session, user.id)
     return render_template(
         "index.html",
         uploads=uploads,
@@ -220,6 +267,10 @@ def render_workspace(db_session, user: User, *, names=None, success_message=None
         theme=theme,
         datetime=datetime,
         csrf_token=flask_session.get("csrf_token"),
+        max_file_size_mb=MAX_FILE_SIZE_MB,
+        max_upload_mb=MAX_UPLOAD_MB,
+        storage_used=usage_bytes,
+        storage_limit=MAX_STORAGE_PER_USER_BYTES,
     )
 
 
@@ -302,14 +353,15 @@ def app_home():
 @app.route("/register", methods=["POST"])
 def register():
     email = (request.form.get("email") or "").strip()
+    username = (request.form.get("username") or "").strip()
     password = request.form.get("password") or ""
     confirm = request.form.get("password_confirm") or ""
     plan = (request.form.get("plan") or "free").strip().lower()
     if plan not in {"free", "premium"}:
         plan = "free"
 
-    if not email or not password:
-        return render_landing_page(error_message="Bitte E-Mail und Passwort ausfüllen.")
+    if not email or not username or not password:
+        return render_landing_page(error_message="Bitte E-Mail, Username und Passwort ausfüllen.")
     if password != confirm:
         return render_landing_page(error_message="Passwörter stimmen nicht überein.")
 
@@ -317,11 +369,20 @@ def register():
     try:
         if get_user_by_email(db_session, email):
             return render_landing_page(error_message="Diese E-Mail ist bereits registriert.")
+        if get_user_by_username(db_session, username):
+            return render_landing_page(error_message="Dieser Username ist bereits vergeben.")
 
         password_hash = generate_password_hash(password)
-        user = create_user(db_session, email=email, password_hash=password_hash, plan=plan)
+        user = create_user(
+            db_session,
+            email=email,
+            username=username,
+            password_hash=password_hash,
+            plan=plan,
+        )
         db_session.commit()
         flask_session["user_id"] = user.id
+        flask_session.permanent = True
     except Exception:  # noqa: BLE001
         db_session.rollback()
         return render_landing_page(error_message="Registrierung fehlgeschlagen. Bitte später erneut versuchen.")
@@ -345,6 +406,7 @@ def login():
         if not user or not check_password_hash(user.password_hash, password):
             return render_landing_page(error_message="Login fehlgeschlagen. Bitte E-Mail und Passwort prüfen.")
         flask_session["user_id"] = user.id
+        flask_session.permanent = True
     finally:
         db_session.close()
 
@@ -370,6 +432,7 @@ def admin_login():
         if not user or not check_password_hash(user.password_hash, password) or not user.is_admin:
             return render_admin_login_page(error_message="Admin-Zugang nicht gültig.")
         flask_session["user_id"] = user.id
+        flask_session.permanent = True
     finally:
         db_session.close()
 
@@ -449,6 +512,10 @@ def upload():
             )
             return render_workspace(db_session, user, error_message=msg), 403
 
+        size_ok, size_error = validate_size_and_capacity(db_session, user, files)
+        if not size_ok:
+            return render_workspace(db_session, user, error_message=size_error), 400
+
         saved = 0
         for file_storage in files:
             uploaded = save_file(
@@ -508,6 +575,10 @@ def upload_namensliste():
             )
             return render_workspace(db_session, user, error_message=msg), 403
 
+        size_ok, size_error = validate_size_and_capacity(db_session, user, [file_storage])
+        if not size_ok:
+            return render_workspace(db_session, user, error_message=size_error), 400
+
         file_storage.stream.seek(0)
         uploaded = save_file(db_session, file_storage, folder_label, request.remote_addr, user_id=user.id)
         if not uploaded:
@@ -532,7 +603,12 @@ def my_uploads():
         if not user:
             return redirect(url_for("landing", error="login_required"))
 
-        uploads = fetch_user_uploads(db_session, user.id)
+        sort = request.args.get("sort", "date_desc")
+        allowed_sorts = {"date_desc", "date_asc", "name_asc", "name_desc", "size_asc", "size_desc"}
+        if sort not in allowed_sorts:
+            sort = "date_desc"
+
+        uploads = fetch_user_uploads(db_session, user.id, sort=sort)
         theme = get_theme(user)
         ensure_csrf_token()
         success_message = success_text_from_query(request.args.get("success"))
@@ -546,6 +622,9 @@ def my_uploads():
             error_message=error_message,
             csrf_token=flask_session.get("csrf_token"),
             datetime=datetime,
+            sort=sort,
+            storage_used=user_storage_usage(db_session, user.id),
+            storage_limit=MAX_STORAGE_PER_USER_BYTES,
         )
     finally:
         db_session.close()
@@ -664,6 +743,20 @@ def admin_panel():
         total_users=total_users,
         theme=theme,
     )
+
+
+@app.errorhandler(413)
+def handle_large_request(_err):
+    db_session = get_session()
+    try:
+        user = get_current_user(db_session)
+        message = f"Upload überschreitet das Limit von {MAX_UPLOAD_MB} MB pro Anfrage. Bitte kleinere Dateien wählen."
+        if user:
+            return render_workspace(db_session, user, error_message=message), 413
+    finally:
+        db_session.close()
+
+    return render_landing_page(error_message=message), 413
 
 
 init_db()

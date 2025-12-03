@@ -13,6 +13,8 @@ from sqlalchemy import (
     String,
     create_engine,
     func,
+    inspect,
+    text,
 )
 from sqlalchemy.orm import Session, declarative_base, relationship, scoped_session, sessionmaker
 
@@ -58,6 +60,7 @@ class User(Base):
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     email = Column(String(255), unique=True, nullable=False)
+    username = Column(String(255), unique=True, nullable=False)
     password_hash = Column(String(255), nullable=False)
     plan = Column(String(50), default="free", nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
@@ -70,8 +73,24 @@ class User(Base):
     uploads = relationship("Upload", back_populates="uploader")
 
 
+def _ensure_username_column():
+    inspector = inspect(engine)
+    columns = {col["name"] for col in inspector.get_columns("users")}
+    if "username" in columns:
+        return
+
+    with engine.begin() as conn:
+        conn.execute(text("ALTER TABLE users ADD COLUMN username VARCHAR(255)"))
+
+    with SessionLocal() as session:
+        for user in session.query(User).all():
+            user.username = f"user-{user.id}"
+        session.commit()
+
+
 def init_db() -> None:
     Base.metadata.create_all(engine)
+    _ensure_username_column()
 
 
 def get_session() -> Session:
@@ -87,12 +106,28 @@ def fetch_recent_uploads(session: Session, limit: int = 25) -> List[Upload]:
     )
 
 
-def fetch_user_uploads(session: Session, user_id: int, limit: int | None = None) -> List[Upload]:
-    query = (
-        session.query(Upload)
-        .filter(Upload.user_id == user_id)
-        .order_by(Upload.upload_timestamp.desc())
-    )
+def fetch_user_uploads(
+    session: Session,
+    user_id: int,
+    *,
+    limit: int | None = None,
+    sort: str | None = None,
+) -> List[Upload]:
+    query = session.query(Upload).filter(Upload.user_id == user_id)
+
+    if sort == "name_asc":
+        query = query.order_by(Upload.original_filename.asc())
+    elif sort == "name_desc":
+        query = query.order_by(Upload.original_filename.desc())
+    elif sort == "size_asc":
+        query = query.order_by(Upload.size_bytes.asc())
+    elif sort == "size_desc":
+        query = query.order_by(Upload.size_bytes.desc())
+    elif sort == "date_asc":
+        query = query.order_by(Upload.upload_timestamp.asc())
+    else:
+        query = query.order_by(Upload.upload_timestamp.desc())
+
     if limit:
         query = query.limit(limit)
     return query.all()
@@ -150,12 +185,27 @@ def get_user_by_email(session: Session, email: str) -> Optional[User]:
     return session.query(User).filter(func.lower(User.email) == email.lower()).one_or_none()
 
 
+def get_user_by_username(session: Session, username: str) -> Optional[User]:
+    return (
+        session.query(User)
+        .filter(func.lower(User.username) == username.lower())
+        .one_or_none()
+    )
+
+
 def get_user_by_id(session: Session, user_id: int) -> Optional[User]:
     return session.query(User).filter(User.id == user_id).one_or_none()
 
 
-def create_user(session: Session, email: str, password_hash: str, plan: str = "free") -> User:
-    user = User(email=email, password_hash=password_hash, plan=plan)
+def create_user(
+    session: Session,
+    *,
+    email: str,
+    username: str,
+    password_hash: str,
+    plan: str = "free",
+) -> User:
+    user = User(email=email, username=username, password_hash=password_hash, plan=plan)
     session.add(user)
     session.flush()
     return user
@@ -169,6 +219,15 @@ def count_uploads_for_date(session: Session, user_id: int, target_date: date) ->
         .filter(Upload.user_id == user_id, Upload.upload_timestamp >= start, Upload.upload_timestamp < end)
         .scalar()
     )
+
+
+def user_storage_usage(session: Session, user_id: int) -> int:
+    total = (
+        session.query(func.coalesce(func.sum(Upload.size_bytes), 0))
+        .filter(Upload.user_id == user_id)
+        .scalar()
+    )
+    return int(total or 0)
 
 
 def reset_daily_counter_if_needed(user: User) -> None:

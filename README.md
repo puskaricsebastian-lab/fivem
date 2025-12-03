@@ -3,12 +3,13 @@
 Elegante Weboberfläche zum Hochladen kompletter Ordner. Fürs Ausprobieren läuft alles direkt lokal mit einer integrierten SQLite-Datei; eine zentrale Online-Datenbank (z. B. PostgreSQL) kannst du später per `DATABASE_URL` anbinden.
 
 ## Features
-- Login-Pflicht mit Benutzerkonten (E-Mail + Passwort, gehasht gespeichert) und Plänen Free/Premium/Trial.
-- Upload kompletter Ordner (inklusive Unterordner) per Browser (`webkitdirectory`) – jedem Upload wird der aktuelle Benutzer zugeordnet.
-- Persönliche Cloud-Ansicht unter „Meine Dateien“: alle eigenen Uploads mit Download- und Lösch-Buttons (löscht auch die physische Datei).
+- Login-Pflicht mit Benutzerkonten (E-Mail + Username + Passwort, gehasht gespeichert) und Plänen Free/Premium/Trial; E-Mail und Username sind eindeutig.
+- Upload kompletter Ordner (inklusive Unterordner) per Browser (`webkitdirectory`) – jedem Upload wird der aktuelle Benutzer zugeordnet; Drag & Drop mit Fortschrittsbalken ist aktiv.
+- Persönliche Cloud-Ansicht unter „Meine Dateien“: alle eigenen Uploads mit Download- und Lösch-Buttons (löscht auch die physische Datei) plus Sortierung nach Name/Datum/Größe.
 - Speicherung auf dem Server-Dateisystem pro Benutzer unter `uploads/<user_id>/<jahr>/<monat>/...`; Metadaten in SQLite (lokal) oder optional in einer zentralen DB via `DATABASE_URL` (z. B. PostgreSQL).
 - Upload einer Excel-Namensliste (.xlsx) mit Vor-/Nachname; alle Namen landen in der Tabelle `persons` und gehören zum jeweiligen Nutzer.
 - Admin-Bereich (`/admin/login`, `/admin/uploads`, `/admin`) für vollständige Historie aller Nutzer (nur `is_admin=True`).
+- Konfigurierbare Upload- und Speicherlimits: `MAX_UPLOAD_MB` (pro Anfrage), `MAX_FILE_SIZE_MB` (pro Datei) und optional `MAX_STORAGE_PER_USER_MB` (Gesamtspeicher pro Nutzer).
 
 ### Benutzer & Quoten
 - Free: 5 Uploads pro Tag und Benutzer.
@@ -49,6 +50,7 @@ Elegante Weboberfläche zum Hochladen kompletter Ordner. Fürs Ausprobieren läu
    - Für den Schnellstart ist nichts nötig (es wird automatisch `database.db` als lokale SQLite genutzt).
    - Wenn du zentral testen willst: In PhpStorm `Run > Edit Configurations…` → `+` → „Python“ → Script `app.py` wählen → unter „Environment variables“ `DATABASE_URL=postgresql+psycopg2://user:pass@host:5432/htl_upload` eintragen. Hier kannst du auch `SECRET_KEY=etwas-langes-und-geheimes` setzen.
    - Tabellen (`users`, `uploads`, `persons`) werden beim Start automatisch erstellt.
+   - Upload-Limits kannst du anpassen mit `MAX_UPLOAD_MB` (pro Anfrage, Default 500), `MAX_FILE_SIZE_MB` (pro Datei, Default = `MAX_UPLOAD_MB`) und `MAX_STORAGE_PER_USER_MB` (optionaler Gesamtspeicher pro Nutzer in MB).
 
 5. **Run/Debug-Konfiguration anlegen**
    - `Run > Edit Configurations…` → `+` → „Python“ → Name z. B. „HTL Upload“ → Script path: `app.py` → Interpreter: deine `.venv` → OK.
@@ -60,9 +62,9 @@ Elegante Weboberfläche zum Hochladen kompletter Ordner. Fürs Ausprobieren läu
 
 7. **Seite im Browser öffnen und testen**
    - `http://localhost:5000` aufrufen. Die Landing erklärt den Funktionsumfang; Login/Registrierung erfolgt direkt dort.
-   - **Registrieren/Anmelden:** E-Mail + Passwort ausfüllen (Passwort-Wiederholung nötig). Plan wählen (Free = 5 Uploads/Tag, Premium/Trial = unbegrenzt). Nach Login wirst du in den Workspace geleitet.
-   - **Uploads:** Im Workspace (`/app`) Ordner oder Excel-Namensliste hochladen. Jede Datei wird deinem Benutzerkonto zugeordnet.
-   - **Meine Dateien:** Unter `/my/uploads` siehst du alle eigenen Uploads, kannst sie herunterladen oder löschen (löscht auch die Datei auf dem Server).
+   - **Registrieren/Anmelden:** E-Mail + Username + Passwort ausfüllen (Passwort-Wiederholung nötig). Plan wählen (Free = 5 Uploads/Tag, Premium/Trial = unbegrenzt). Nach Login wirst du in den Workspace geleitet; die Session ist „remembered“.
+   - **Uploads:** Im Workspace (`/app`) Ordner oder Excel-Namensliste hochladen. Jede Datei wird deinem Benutzerkonto zugeordnet. Drag & Drop und Fortschrittsanzeige sind aktiv. Falls ein Limit verletzt wird (Datei > `MAX_FILE_SIZE_MB`, Anfrage > `MAX_UPLOAD_MB` oder Gesamt > `MAX_STORAGE_PER_USER_MB`), erscheint eine freundliche Fehlermeldung.
+   - **Meine Dateien:** Unter `/my/uploads` siehst du alle eigenen Uploads, kannst sortieren (Name/Datum/Größe), herunterladen oder löschen (löscht auch die Datei auf dem Server). Speicherverbrauch wird angezeigt.
    - **Historie & Downloads (Admin):** `http://localhost:5000/admin/uploads` zeigt alle Uploads aller Nutzer, nur erreichbar mit `is_admin=True`.
 
 > Hinweis: Ordner-Upload funktioniert primär in Chromium-basierten Browsern. Safari/Firefox zeigen ggf. nur Dateiauswahl.

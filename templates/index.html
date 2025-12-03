@@ -31,7 +31,7 @@
     <section class="hero hero--tight">
         <div class="hero__content">
             <p class="eyebrow">Angemeldet</p>
-            <h1>Willkommen zurück, {{ user.email }}</h1>
+            <h1>Willkommen zurück, {{ user.username or user.email }}</h1>
             <p class="subtitle">Alle Uploads werden deinem Konto zugeordnet. Du kannst sie jederzeit unter „Meine Dateien" herunterladen oder löschen.</p>
             <div class="hero__actions">
                 <a class="button" href="#upload">Upload starten</a>
@@ -49,6 +49,15 @@
                 {% endif %}
                 <span class="chip">Theme: {{ theme }}</span>
             </div>
+            <div class="storage">
+                {% set used_mb = (storage_used / (1024 * 1024)) | round(2) %}
+                {% if storage_limit %}
+                    {% set limit_mb = (storage_limit / (1024 * 1024)) | round(0) %}
+                    <p class="storage__label">Speicher: {{ used_mb }} MB / {{ limit_mb }} MB</p>
+                {% else %}
+                    <p class="storage__label">Speicher: {{ used_mb }} MB genutzt</p>
+                {% endif %}
+            </div>
         </div>
     </section>
 
@@ -64,28 +73,32 @@
                 <div>
                     <p class="eyebrow">Upload</p>
                     <h2>Ordner oder Dateien hochladen</h2>
-                    <p class="subtitle">Wird direkt deinem Account zugeordnet. Maximal 512 MB pro Anfrage.</p>
-                </div>
+                    <p class="subtitle">Wird direkt deinem Account zugeordnet. Maximal {{ max_upload_mb }} MB pro Anfrage, Datei-Limit {{ max_file_size_mb }} MB.</p>
+                    </div>
                 <div class="chip-row">
                     <span class="chip">Free: {{ daily_limit }} / Tag</span>
                     <span class="chip chip--success">Premium/Trial: unbegrenzt</span>
                 </div>
             </div>
-            <form class="upload" action="{{ url_for('upload') }}" method="post" enctype="multipart/form-data">
+            <form class="upload" action="{{ url_for('upload') }}" method="post" enctype="multipart/form-data" data-progress-form>
                 <label class="field">
                     <span>Ordnername</span>
                     <input type="text" name="folderName" placeholder="z.B. Htl-Projekt" aria-label="Ordnername">
                 </label>
-                <label class="dropzone" for="files">
+                <label class="dropzone" for="files" data-dropzone>
                     <input id="files" type="file" name="files" webkitdirectory directory multiple required>
                     <div class="dropzone__inner">
                         <div class="icon">📁</div>
                         <div>
                             <p class="dropzone__title">Ordner hier ablegen oder klicken, um auszuwählen</p>
-                            <p class="subtitle">Unterstützt verschachtelte Ordner und alle Dateitypen</p>
+                            <p class="subtitle">Drag & Drop unterstützt (verschachtelte Ordner möglich)</p>
                         </div>
                     </div>
                 </label>
+                <div class="progress" aria-live="polite">
+                    <div class="progress__bar" data-progress-bar></div>
+                    <span class="progress__status" data-progress-status></span>
+                </div>
                 <button class="button" type="submit">Upload starten</button>
             </form>
         </section>
@@ -98,11 +111,15 @@
                     <p class="subtitle">Spalten Vorname und Nachname ab Zeile 2. Wird deinem Account zugeordnet.</p>
                 </div>
             </div>
-            <form class="upload" action="{{ url_for('upload_namensliste') }}" method="post" enctype="multipart/form-data">
+            <form class="upload" action="{{ url_for('upload_namensliste') }}" method="post" enctype="multipart/form-data" data-progress-form>
                 <label class="field">
                     <span>Excel-Datei (.xlsx)</span>
                     <input type="file" name="namensliste" accept=".xlsx" required aria-label="Excel-Datei auswählen">
                 </label>
+                <div class="progress" aria-live="polite">
+                    <div class="progress__bar" data-progress-bar></div>
+                    <span class="progress__status" data-progress-status></span>
+                </div>
                 <button class="button" type="submit">Namensliste hochladen</button>
             </form>
         </section>
@@ -140,5 +157,50 @@
     <footer class="footer">
         <p>HTL Upload • Persönliche Cloud für deine Dateien</p>
     </footer>
+    <script>
+    const dropzones = document.querySelectorAll('[data-dropzone]');
+    dropzones.forEach((zone) => {
+        zone.addEventListener('dragover', (ev) => {
+            ev.preventDefault();
+            zone.classList.add('dropzone--hover');
+        });
+        zone.addEventListener('dragleave', () => zone.classList.remove('dropzone--hover'));
+        zone.addEventListener('drop', (ev) => {
+            ev.preventDefault();
+            zone.classList.remove('dropzone--hover');
+            const input = zone.querySelector('input[type="file"]');
+            if (ev.dataTransfer?.files?.length && input) {
+                input.files = ev.dataTransfer.files;
+                const status = zone.closest('form')?.querySelector('[data-progress-status]');
+                if (status) status.textContent = `${ev.dataTransfer.files.length} Datei(en) ausgewählt.`;
+            }
+        });
+    });
+
+    const forms = document.querySelectorAll('[data-progress-form]');
+    forms.forEach((form) => {
+        form.addEventListener('submit', (event) => {
+            event.preventDefault();
+            const bar = form.querySelector('[data-progress-bar]');
+            const status = form.querySelector('[data-progress-status]');
+            const xhr = new XMLHttpRequest();
+            xhr.open(form.method || 'POST', form.action);
+            xhr.upload.addEventListener('progress', (e) => {
+                if (!e.lengthComputable || !bar) return;
+                const percent = Math.round((e.loaded / e.total) * 100);
+                bar.style.width = `${percent}%`;
+                if (status) status.textContent = `Hochladen... ${percent}%`;
+            });
+            xhr.onload = () => {
+                if (status) status.textContent = xhr.status >= 200 && xhr.status < 400 ? 'Upload abgeschlossen' : 'Upload fehlgeschlagen';
+                window.location.href = xhr.responseURL || form.action;
+            };
+            xhr.onerror = () => {
+                if (status) status.textContent = 'Upload fehlgeschlagen';
+            };
+            xhr.send(new FormData(form));
+        });
+    });
+    </script>
 </body>
 </html>

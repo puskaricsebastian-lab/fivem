@@ -31,8 +31,9 @@
         <div class="panel__header">
             <div>
                 <p class="eyebrow">Meine Dateien</p>
-                <h1>Uploads von {{ user.email }}</h1>
+                <h1>Uploads von {{ user.username or user.email }}</h1>
                 <p class="subtitle">Alle Dateien, die du hochgeladen hast. Downloads funktionieren nur, wenn du eingeloggt bist.</p>
+                <p class="subtitle">Speicher: {{ (storage_used / (1024 * 1024)) | round(2) }} MB{% if storage_limit %} / {{ (storage_limit / (1024 * 1024)) | round(0) }} MB{% endif %}</p>
             </div>
             <a class="button button--ghost" href="{{ url_for('app_home') }}">Neuen Upload starten</a>
         </div>
@@ -43,9 +44,24 @@
         <div class="alert alert--error">{{ error_message }}</div>
         {% endif %}
 
+        <form class="table__filters" method="get" action="{{ url_for('my_uploads') }}">
+            <label class="field field--inline">
+                <span>Sortierung</span>
+                <select name="sort" onchange="this.form.submit()">
+                    <option value="date_desc" {% if sort == 'date_desc' %}selected{% endif %}>Datum ↓</option>
+                    <option value="date_asc" {% if sort == 'date_asc' %}selected{% endif %}>Datum ↑</option>
+                    <option value="name_asc" {% if sort == 'name_asc' %}selected{% endif %}>Name A→Z</option>
+                    <option value="name_desc" {% if sort == 'name_desc' %}selected{% endif %}>Name Z→A</option>
+                    <option value="size_desc" {% if sort == 'size_desc' %}selected{% endif %}>Größe ↓</option>
+                    <option value="size_asc" {% if sort == 'size_asc' %}selected{% endif %}>Größe ↑</option>
+                </select>
+            </label>
+        </form>
+
         <div class="table table--mine">
             <div class="table__header">
                 <span>Datei</span>
+                <span>Originalname</span>
                 <span>Typ</span>
                 <span>Größe</span>
                 <span>Datum</span>
@@ -53,6 +69,7 @@
             </div>
             {% for upload in uploads %}
             <div class="table__row">
+                <span class="nowrap">{{ upload.server_path }}</span>
                 <span class="nowrap">{{ upload.original_filename }}</span>
                 <span class="nowrap">{{ upload.content_type }}</span>
                 <span>{{ (upload.size_bytes / 1024)|round(1) }} KB</span>
