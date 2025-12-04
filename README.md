@@ -8,6 +8,8 @@ Elegante Weboberfläche zum Hochladen kompletter Ordner. Fürs Ausprobieren läu
 - Persönliche Cloud-Ansicht unter „Meine Dateien“: alle eigenen Uploads mit Download- und Lösch-Buttons (löscht auch die physische Datei) plus Sortierung nach Name/Datum/Größe.
 - Speicherung auf dem Server-Dateisystem pro Benutzer unter `uploads/<user_id>/<jahr>/<monat>/...`; Metadaten in SQLite (lokal) oder optional in einer zentralen DB via `DATABASE_URL` (z. B. PostgreSQL).
 - Upload einer Excel-Namensliste (.xlsx) mit Vor-/Nachname; alle Namen landen in der Tabelle `persons` und gehören zum jeweiligen Nutzer.
+- Shares: Besitzer können eigene Uploads gezielt mit anderen Usern per Benutzername teilen („Mit mir geteilt“ / „Meine Shares“ inkl. Entzug des Zugriffs).
+- Gruppen: Join-Code-basierte Gruppen mit Admin-Freigabe von Beitrittsanfragen, Gruppen-Uploads (für alle akzeptierten Mitglieder sichtbar) und Gruppen-Detailseite.
 - Admin-Bereich (`/admin/login`, `/admin/uploads`, `/admin`) für vollständige Historie aller Nutzer (nur `is_admin=True`).
 - Konfigurierbare Upload- und Speicherlimits: `MAX_UPLOAD_MB` (pro Anfrage), `MAX_FILE_SIZE_MB` (pro Datei) und optional `MAX_STORAGE_PER_USER_MB` (Gesamtspeicher pro Nutzer).
 
@@ -15,7 +17,7 @@ Elegante Weboberfläche zum Hochladen kompletter Ordner. Fürs Ausprobieren läu
 - Free: 5 Uploads pro Tag und Benutzer.
 - Trial/Premium: unbegrenzt. Trial kann über die Einstellungen gestartet werden.
 - Alle Passwörter werden gehasht gespeichert (`werkzeug.security`), Sessions laufen über Flask mit `SECRET_KEY`.
-- Downloads/Löschungen sind nur im eingeloggten Zustand möglich; pro Datei wird geprüft, ob sie dem aktuellen Nutzer gehört (oder ob `is_admin=True`).
+- Downloads/Löschungen sind nur im eingeloggten Zustand möglich; pro Datei wird geprüft, ob sie dem aktuellen Nutzer gehört (oder ob `is_admin=True`). Zugriff ist außerdem möglich, wenn ein Share für dich existiert oder du Mitglied der Gruppe eines Gruppen-Uploads bist.
 
 ## Voraussetzungen
 - Python 3.10 oder neuer (prüfen mit `python --version` oder `python3 --version`).
@@ -65,13 +67,16 @@ Elegante Weboberfläche zum Hochladen kompletter Ordner. Fürs Ausprobieren läu
    - **Registrieren/Anmelden:** E-Mail + Username + Passwort ausfüllen (Passwort-Wiederholung nötig). Plan wählen (Free = 5 Uploads/Tag, Premium/Trial = unbegrenzt). Nach Login wirst du in den Workspace geleitet; die Session ist „remembered“.
    - **Uploads:** Im Workspace (`/app`) Ordner oder Excel-Namensliste hochladen. Jede Datei wird deinem Benutzerkonto zugeordnet. Drag & Drop und Fortschrittsanzeige sind aktiv. Falls ein Limit verletzt wird (Datei > `MAX_FILE_SIZE_MB`, Anfrage > `MAX_UPLOAD_MB` oder Gesamt > `MAX_STORAGE_PER_USER_MB`), erscheint eine freundliche Fehlermeldung.
    - **Meine Dateien:** Unter `/my/uploads` siehst du alle eigenen Uploads, kannst sortieren (Name/Datum/Größe), herunterladen oder löschen (löscht auch die Datei auf dem Server). Speicherverbrauch wird angezeigt.
+   - **Shares & Gruppen:**
+     - Unter `/shares/new` einen eigenen Upload mit einem anderen User (per Username) teilen, Übersicht unter `/shares/mine` bzw. „Mit mir geteilt“.
+     - Gruppen findest du unter `/groups`: neue Gruppen anlegen (Join-Code wird generiert), per Join-Code beitreten, Anfragen als Gruppen-Admin bestätigen/ablehnen und Gruppen-Uploads hochladen/herunterladen.
    - **Historie & Downloads (Admin):** `http://localhost:5000/admin/uploads` zeigt alle Uploads aller Nutzer, nur erreichbar mit `is_admin=True`.
 
 > Hinweis: Ordner-Upload funktioniert primär in Chromium-basierten Browsern. Safari/Firefox zeigen ggf. nur Dateiauswahl.
 
 ## Wo liegt der Code und die Uploads?
 - Der gesamte Quellcode liegt in diesem Projektordner (z. B. `/workspace/fivem` in der Entwicklungsumgebung oder im Deploy-Verzeichnis auf dem Server).
-- Hochgeladene Dateien landen auf dem Server im Unterordner `uploads/<user_id>/<jahr>/<monat>/...`; die Metadaten schreibt die App standardmäßig in die lokale SQLite-Datei `database.db` (per `DATABASE_URL` später auf eine zentrale DB umstellbar).
+- Hochgeladene Dateien landen auf dem Server im Unterordner `uploads/<user_id>/<jahr>/<monat>/...`; die Metadaten schreibt die App standardmäßig in die lokale SQLite-Datei `database.db` (per `DATABASE_URL` später auf eine zentrale DB umstellbar). Shares und Gruppen referenzieren dieselben Uploads.
 - Standardmäßig wird nichts automatisch nach GitHub übertragen. Wenn du das Projekt in ein eigenes GitHub-Repository pushen möchtest, kannst du dort ein neues Repo anlegen und die vorhandenen Dateien hochladen.
 
 > Hinweis: Ich kann den Server/die Datenbank aus Sicherheitsgründen nicht selbst für dich aufsetzen oder Zugangsdaten entgegennehmen. Die obigen Schritte kannst du direkt auf deinem Root-Server ausführen (z. B. mit systemd + Nginx/Gunicorn für einen dauerhaften Betrieb).

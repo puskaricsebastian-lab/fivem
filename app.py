@@ -1,7 +1,8 @@
 import os
+import secrets
+import string
 from datetime import date, datetime, timedelta
 from pathlib import Path
-import secrets
 
 from dotenv import load_dotenv
 
@@ -23,20 +24,40 @@ from werkzeug.datastructures import FileStorage  # noqa: E402
 from werkzeug.security import check_password_hash, generate_password_hash  # noqa: E402
 
 from models import (  # noqa: E402
+    Group,
+    GroupMembership,
+    GroupUpload,
+    Share,
     User,
+    add_group_upload,
     add_person_rows,
     add_upload,
     count_uploads_for_date,
     create_user,
+    create_group,
+    create_membership,
+    create_share,
+    delete_share,
     fetch_upload,
     fetch_user_uploads,
     fetch_uploads_desc,
+    get_membership,
+    get_share,
     get_session,
+    get_group_by_code,
+    get_group_by_id,
     get_user_by_email,
     get_user_by_username,
     get_user_by_id,
     init_db,
+    list_group_members,
+    list_group_uploads,
+    list_groups_for_user,
+    list_pending_requests,
+    list_shares_by_owner,
+    list_shares_for_user,
     reset_daily_counter_if_needed,
+    update_membership_status,
     user_storage_usage,
 )
 
@@ -101,6 +122,36 @@ def ensure_csrf_token() -> str:
         token = secrets.token_hex(16)
         flask_session["csrf_token"] = token
     return token
+
+
+def generate_join_code(db_session) -> str:
+    alphabet = string.ascii_uppercase + string.digits
+    while True:
+        candidate = "#" + "".join(secrets.choice(alphabet) for _ in range(5))
+        if not get_group_by_code(db_session, candidate):
+            return candidate
+
+
+def share_for_user_and_upload(db_session, user_id: int, upload_id: int):
+    return (
+        db_session.query(Share)
+        .filter(Share.upload_id == upload_id, Share.target_user_id == user_id)
+        .one_or_none()
+    )
+
+
+def group_link_for_upload(db_session, upload_id: int) -> GroupUpload | None:
+    return db_session.query(GroupUpload).filter(GroupUpload.upload_id == upload_id).one_or_none()
+
+
+def membership_allows(group: Group, membership: GroupMembership | None, user: User) -> bool:
+    if user.is_admin:
+        return True
+    if group.admin_id == user.id:
+        return True
+    if membership and membership.status == "accepted":
+        return True
+    return False
 
 
 def enforce_quota(db_session, user: User, pending_uploads: int) -> tuple[bool, int]:
@@ -630,6 +681,430 @@ def my_uploads():
         db_session.close()
 
 
+@app.route("/shares/new", methods=["GET", "POST"])
+def new_share():
+    db_session = get_session()
+    try:
+        user = require_user(db_session)
+        if not user:
+            return redirect(url_for("landing", error="login_required"))
+
+        uploads = fetch_user_uploads(db_session, user.id, sort="date_desc")
+        theme = get_theme(user)
+        ensure_csrf_token()
+        if request.method == "POST":
+            token = flask_session.get("csrf_token")
+            if not token or request.form.get("csrf_token") != token:
+                return render_template(
+                    "share_new.html",
+                    user=user,
+                    theme=theme,
+                    uploads=uploads,
+                    error_message="Aktion nicht erlaubt.",
+                    datetime=datetime,
+                    csrf_token=token,
+                ), 403
+
+            target_username = (request.form.get("target_username") or "").strip()
+            upload_id = request.form.get("upload_id")
+
+            if not target_username or not upload_id:
+                return render_template(
+                    "share_new.html",
+                    user=user,
+                    theme=theme,
+                    uploads=uploads,
+                    error_message="Bitte Benutzername und Upload auswählen.",
+                    datetime=datetime,
+                    csrf_token=token,
+                )
+
+            target_user = get_user_by_username(db_session, target_username)
+            if not target_user:
+                return render_template(
+                    "share_new.html",
+                    user=user,
+                    theme=theme,
+                    uploads=uploads,
+                    error_message="Benutzer wurde nicht gefunden.",
+                    datetime=datetime,
+                    csrf_token=token,
+                )
+
+            upload_obj = fetch_upload(db_session, int(upload_id))
+            if not upload_obj or upload_obj.user_id != user.id:
+                return render_template(
+                    "share_new.html",
+                    user=user,
+                    theme=theme,
+                    uploads=uploads,
+                    error_message="Upload gehört dir nicht.",
+                    datetime=datetime,
+                    csrf_token=token,
+                ), 403
+
+            create_share(
+                db_session,
+                owner_id=user.id,
+                target_user_id=target_user.id,
+                upload_id=upload_obj.id,
+            )
+            db_session.commit()
+            return redirect(url_for("shares_mine", success="share_created"))
+
+        return render_template(
+            "share_new.html",
+            user=user,
+            theme=theme,
+            uploads=uploads,
+            datetime=datetime,
+            csrf_token=flask_session.get("csrf_token"),
+        )
+    finally:
+        db_session.close()
+
+
+@app.route("/shares/mine")
+def shares_mine():
+    db_session = get_session()
+    try:
+        user = require_user(db_session)
+        if not user:
+            return redirect(url_for("landing", error="login_required"))
+        ensure_csrf_token()
+        shares = list_shares_by_owner(db_session, user.id)
+        theme = get_theme(user)
+        success_message = None
+        if request.args.get("success") == "share_created":
+            success_message = "Share wurde erstellt."
+        return render_template(
+            "shares_mine.html",
+            user=user,
+            theme=theme,
+            shares=shares,
+            datetime=datetime,
+            csrf_token=flask_session.get("csrf_token"),
+            success_message=success_message,
+        )
+    finally:
+        db_session.close()
+
+
+@app.route("/shared-with-me")
+def shared_with_me():
+    db_session = get_session()
+    try:
+        user = require_user(db_session)
+        if not user:
+            return redirect(url_for("landing", error="login_required"))
+        theme = get_theme(user)
+        shares = list_shares_for_user(db_session, user.id)
+        return render_template(
+            "shared_with_me.html",
+            user=user,
+            theme=theme,
+            shares=shares,
+            datetime=datetime,
+        )
+    finally:
+        db_session.close()
+
+
+@app.route("/shares/<int:share_id>/delete", methods=["POST"])
+def delete_share_route(share_id: int):
+    db_session = get_session()
+    try:
+        user = require_user(db_session)
+        if not user:
+            return redirect(url_for("landing", error="login_required"))
+        token = flask_session.get("csrf_token")
+        if not token or request.form.get("csrf_token") != token:
+            return redirect(url_for("shares_mine")), 403
+        share_obj = get_share(db_session, share_id)
+        if not share_obj or share_obj.owner_id != user.id:
+            return redirect(url_for("shares_mine", error="unauthorized")), 403
+        delete_share(db_session, share_obj)
+        db_session.commit()
+    finally:
+        db_session.close()
+    return redirect(url_for("shares_mine"))
+
+
+@app.route("/groups")
+def groups_overview():
+    db_session = get_session()
+    try:
+        user = require_user(db_session)
+        if not user:
+            return redirect(url_for("landing", error="login_required"))
+        groups = list_groups_for_user(db_session, user.id)
+        theme = get_theme(user)
+        return render_template("groups.html", user=user, theme=theme, groups=groups, datetime=datetime)
+    finally:
+        db_session.close()
+
+
+@app.route("/groups/new", methods=["GET", "POST"])
+def create_group_view():
+    db_session = get_session()
+    try:
+        user = require_user(db_session)
+        if not user:
+            return redirect(url_for("landing", error="login_required"))
+        ensure_csrf_token()
+        theme = get_theme(user)
+        if request.method == "POST":
+            token = flask_session.get("csrf_token")
+            if not token or request.form.get("csrf_token") != token:
+                return redirect(url_for("create_group_view")), 403
+            name = (request.form.get("name") or "").strip()
+            description = (request.form.get("description") or "").strip()
+            if not name:
+                return render_template(
+                    "group_new.html",
+                    user=user,
+                    theme=theme,
+                    error_message="Bitte Gruppennamen eingeben.",
+                    csrf_token=token,
+                )
+            join_code = generate_join_code(db_session)
+            group = create_group(
+                db_session, name=name, description=description, join_code=join_code, admin_id=user.id
+            )
+            create_membership(db_session, group_id=group.id, user_id=user.id, status="accepted")
+            db_session.commit()
+            return redirect(url_for("group_detail", group_id=group.id))
+
+        return render_template(
+            "group_new.html",
+            user=user,
+            theme=theme,
+            csrf_token=flask_session.get("csrf_token"),
+        )
+    finally:
+        db_session.close()
+
+
+@app.route("/groups/join", methods=["GET", "POST"])
+def join_group_view():
+    db_session = get_session()
+    try:
+        user = require_user(db_session)
+        if not user:
+            return redirect(url_for("landing", error="login_required"))
+        theme = get_theme(user)
+        ensure_csrf_token()
+        if request.method == "POST":
+            token = flask_session.get("csrf_token")
+            if not token or request.form.get("csrf_token") != token:
+                return redirect(url_for("join_group_view")), 403
+            join_code = (request.form.get("join_code") or "").strip()
+            group = get_group_by_code(db_session, join_code)
+            if not group:
+                return render_template(
+                    "group_join.html",
+                    user=user,
+                    theme=theme,
+                    error_message="Code wurde nicht gefunden.",
+                    csrf_token=token,
+                )
+            membership = get_membership(db_session, group.id, user.id)
+            if membership:
+                message = "Du bist bereits Mitglied." if membership.status == "accepted" else "Anfrage läuft bereits."
+                return render_template(
+                    "group_join.html",
+                    user=user,
+                    theme=theme,
+                    error_message=message if membership.status != "accepted" else None,
+                    success_message=message if membership.status == "accepted" else None,
+                    csrf_token=token,
+                )
+            create_membership(db_session, group_id=group.id, user_id=user.id, status="pending")
+            db_session.commit()
+            return render_template(
+                "group_join.html",
+                user=user,
+                theme=theme,
+                success_message="Anfrage gesendet. Warte auf Bestätigung.",
+                csrf_token=token,
+            )
+
+        return render_template(
+            "group_join.html",
+            user=user,
+            theme=theme,
+            csrf_token=flask_session.get("csrf_token"),
+        )
+    finally:
+        db_session.close()
+
+
+@app.route("/groups/<int:group_id>")
+def group_detail(group_id: int):
+    db_session = get_session()
+    try:
+        user = require_user(db_session)
+        if not user:
+            return redirect(url_for("landing", error="login_required"))
+        group = get_group_by_id(db_session, group_id)
+        if not group:
+            abort(404)
+        membership = get_membership(db_session, group_id, user.id)
+        allowed = membership_allows(group, membership, user)
+        theme = get_theme(user)
+        ensure_csrf_token()
+        members = list_group_members(db_session, group_id) if allowed else []
+        uploads = list_group_uploads(db_session, group_id) if allowed else []
+        requests_pending = list_pending_requests(db_session, group_id) if group.admin_id == user.id else []
+        return render_template(
+            "group_detail.html",
+            user=user,
+            theme=theme,
+            group=group,
+            membership=membership,
+            members=members,
+            uploads=uploads,
+            requests_pending=requests_pending,
+            datetime=datetime,
+            csrf_token=flask_session.get("csrf_token"),
+        )
+    finally:
+        db_session.close()
+
+
+@app.route("/groups/<int:group_id>/requests", methods=["POST"])
+def handle_group_request(group_id: int):
+    db_session = get_session()
+    try:
+        user = require_user(db_session)
+        if not user:
+            return redirect(url_for("landing", error="login_required"))
+        group = get_group_by_id(db_session, group_id)
+        if not group:
+            abort(404)
+        if group.admin_id != user.id and not user.is_admin:
+            return redirect(url_for("group_detail", group_id=group_id, error="unauthorized")), 403
+        token = flask_session.get("csrf_token")
+        if not token or request.form.get("csrf_token") != token:
+            return redirect(url_for("group_detail", group_id=group_id)), 403
+
+        membership_id = int(request.form.get("membership_id"))
+        action = request.form.get("action")
+        membership = db_session.query(GroupMembership).filter(GroupMembership.id == membership_id).one_or_none()
+        if not membership or membership.group_id != group_id:
+            return redirect(url_for("group_detail", group_id=group_id)), 404
+
+        if action == "accept":
+            update_membership_status(db_session, membership, "accepted")
+        elif action == "reject":
+            update_membership_status(db_session, membership, "rejected")
+        db_session.commit()
+        return redirect(url_for("group_detail", group_id=group_id))
+    finally:
+        db_session.close()
+
+
+@app.route("/groups/<int:group_id>/uploads", methods=["GET", "POST"])
+def group_uploads(group_id: int):
+    db_session = get_session()
+    try:
+        user = require_user(db_session)
+        if not user:
+            return redirect(url_for("landing", error="login_required"))
+        group = get_group_by_id(db_session, group_id)
+        if not group:
+            abort(404)
+        membership = get_membership(db_session, group_id, user.id)
+        if not membership_allows(group, membership, user):
+            return redirect(url_for("group_detail", group_id=group_id, error="unauthorized")), 403
+
+        ensure_csrf_token()
+        theme = get_theme(user)
+        uploads_list = list_group_uploads(db_session, group_id)
+
+        if request.method == "POST":
+            token = flask_session.get("csrf_token")
+            if not token or request.form.get("csrf_token") != token:
+                return redirect(url_for("group_uploads", group_id=group_id)), 403
+            files = request.files.getlist("files")
+            folder_label_input = request.form.get("folderName", "")
+            folder_label = sanitize_folder_label(folder_label_input)
+            if not files:
+                return render_template(
+                    "group_uploads.html",
+                    user=user,
+                    theme=theme,
+                    group=group,
+                    uploads=uploads_list,
+                    error_message="Keine Dateien erhalten.",
+                    csrf_token=token,
+                )
+            allowed, remaining = enforce_quota(db_session, user, len(files))
+            if not allowed:
+                msg = (
+                    "Freies Kontingent erschöpft (maximal "
+                    f"{FREE_DAILY_LIMIT} Uploads pro Tag, verbleibend: {remaining}). Upgrade auf Premium für unbegrenzte Uploads."
+                )
+                return render_template(
+                    "group_uploads.html",
+                    user=user,
+                    theme=theme,
+                    group=group,
+                    uploads=uploads_list,
+                    error_message=msg,
+                    csrf_token=token,
+                ), 403
+
+            size_ok, size_error = validate_size_and_capacity(db_session, user, files)
+            if not size_ok:
+                return render_template(
+                    "group_uploads.html",
+                    user=user,
+                    theme=theme,
+                    group=group,
+                    uploads=uploads_list,
+                    error_message=size_error,
+                    csrf_token=token,
+                ), 400
+
+            try:
+                for file_storage in files:
+                    uploaded = save_file(
+                        db_session,
+                        file_storage,
+                        folder_label,
+                        request.remote_addr,
+                        user_id=user.id,
+                    )
+                    if uploaded:
+                        add_group_upload(
+                            db_session, group_id=group.id, upload_id=uploaded.id, uploader_id=user.id
+                        )
+                db_session.commit()
+            except Exception:  # noqa: BLE001
+                db_session.rollback()
+                return render_template(
+                    "group_uploads.html",
+                    user=user,
+                    theme=theme,
+                    group=group,
+                    uploads=uploads_list,
+                    error_message="Speichern fehlgeschlagen.",
+                    csrf_token=flask_session.get("csrf_token"),
+                ), 500
+            return redirect(url_for("group_detail", group_id=group.id))
+
+        return render_template(
+            "group_uploads.html",
+            user=user,
+            theme=theme,
+            group=group,
+            uploads=uploads_list,
+            csrf_token=flask_session.get("csrf_token"),
+        )
+    finally:
+        db_session.close()
+
 @app.route("/download/<int:upload_id>")
 def download(upload_id: int):
     db_session = get_session()
@@ -641,7 +1116,20 @@ def download(upload_id: int):
         upload_obj = fetch_upload(db_session, upload_id)
         if not upload_obj:
             abort(404)
-        if upload_obj.user_id != user.id and not user.is_admin:
+        allowed = False
+        if upload_obj.user_id == user.id or user.is_admin:
+            allowed = True
+        else:
+            share_obj = share_for_user_and_upload(db_session, user.id, upload_id)
+            if share_obj:
+                allowed = True
+            else:
+                link = group_link_for_upload(db_session, upload_id)
+                if link:
+                    membership = get_membership(db_session, link.group_id, user.id)
+                    if membership_allows(link.group, membership, user):
+                        allowed = True
+        if not allowed:
             return redirect(url_for("my_uploads", error="unauthorized")), 403
     finally:
         db_session.close()
@@ -668,7 +1156,12 @@ def delete_upload(upload_id: int):
         upload_obj = fetch_upload(db_session, upload_id)
         if not upload_obj:
             abort(404)
-        if upload_obj.user_id != user.id and not user.is_admin:
+        allowed = upload_obj.user_id == user.id or user.is_admin
+        if not allowed:
+            link = group_link_for_upload(db_session, upload_id)
+            if link and link.group.admin_id == user.id:
+                allowed = True
+        if not allowed:
             return redirect(url_for("my_uploads", error="unauthorized")), 403
 
         file_path = BASE_DIR / upload_obj.server_path

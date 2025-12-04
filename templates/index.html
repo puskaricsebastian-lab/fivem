@@ -16,6 +16,9 @@
             <a href="{{ url_for('landing') }}">Start</a>
             <a href="{{ url_for('app_home') }}" class="active">Upload</a>
             <a href="{{ url_for('my_uploads') }}">Meine Dateien</a>
+            <a href="{{ url_for('shared_with_me') }}">Mit mir geteilt</a>
+            <a href="{{ url_for('shares_mine') }}">Meine Shares</a>
+            <a href="{{ url_for('groups_overview') }}">Gruppen</a>
             <a href="{{ url_for('settings') }}">Einstellungen</a>
             {% if user and user.is_admin %}
                 <a href="{{ url_for('admin_panel') }}">Admin</a>

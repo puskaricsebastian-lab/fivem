@@ -41,6 +41,7 @@ class Upload(Base):
 
     uploader = relationship("User", back_populates="uploads")
     persons = relationship("Person", back_populates="upload", cascade="all, delete-orphan", lazy="joined")
+    group_links = relationship("GroupUpload", back_populates="upload", cascade="all, delete-orphan")
 
 
 class Person(Base):
@@ -71,6 +72,67 @@ class User(Base):
     is_admin = Column(Boolean, default=False, nullable=False)
 
     uploads = relationship("Upload", back_populates="uploader")
+    shares_created = relationship("Share", back_populates="owner", foreign_keys="Share.owner_id")
+    shares_received = relationship("Share", back_populates="target_user", foreign_keys="Share.target_user_id")
+    memberships = relationship("GroupMembership", back_populates="user")
+    groups_administered = relationship("Group", back_populates="admin", foreign_keys="Group.admin_id")
+
+
+class Share(Base):
+    __tablename__ = "shares"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    owner_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    target_user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    upload_id = Column(Integer, ForeignKey("uploads.id", ondelete="CASCADE"), nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+    owner = relationship("User", back_populates="shares_created", foreign_keys=[owner_id])
+    target_user = relationship("User", back_populates="shares_received", foreign_keys=[target_user_id])
+    upload = relationship("Upload")
+
+
+class Group(Base):
+    __tablename__ = "groups"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    name = Column(String(255), nullable=False)
+    description = Column(String(1024), nullable=True)
+    join_code = Column(String(20), unique=True, nullable=False)
+    admin_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+    admin = relationship("User", back_populates="groups_administered", foreign_keys=[admin_id])
+    memberships = relationship("GroupMembership", back_populates="group", cascade="all, delete-orphan")
+    uploads = relationship("GroupUpload", back_populates="group", cascade="all, delete-orphan")
+
+
+class GroupMembership(Base):
+    __tablename__ = "group_memberships"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    group_id = Column(Integer, ForeignKey("groups.id", ondelete="CASCADE"), nullable=False)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    role = Column(String(50), default="member", nullable=False)
+    status = Column(String(50), default="pending", nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+    group = relationship("Group", back_populates="memberships")
+    user = relationship("User", back_populates="memberships")
+
+
+class GroupUpload(Base):
+    __tablename__ = "group_uploads"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    group_id = Column(Integer, ForeignKey("groups.id", ondelete="CASCADE"), nullable=False)
+    upload_id = Column(Integer, ForeignKey("uploads.id", ondelete="CASCADE"), nullable=False)
+    uploader_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+    group = relationship("Group", back_populates="uploads")
+    upload = relationship("Upload", back_populates="group_links")
+    uploader = relationship("User")
 
 
 def _ensure_username_column():
@@ -235,3 +297,122 @@ def reset_daily_counter_if_needed(user: User) -> None:
     if user.daily_uploads_date != today:
         user.daily_uploads_date = today
         user.daily_uploads_count = 0
+
+
+def create_share(session: Session, *, owner_id: int, target_user_id: int, upload_id: int) -> Share:
+    share = Share(owner_id=owner_id, target_user_id=target_user_id, upload_id=upload_id)
+    session.add(share)
+    session.flush()
+    return share
+
+
+def get_share(session: Session, share_id: int) -> Share | None:
+    return session.query(Share).filter(Share.id == share_id).one_or_none()
+
+
+def list_shares_by_owner(session: Session, owner_id: int) -> List[Share]:
+    return (
+        session.query(Share)
+        .filter(Share.owner_id == owner_id)
+        .order_by(Share.created_at.desc())
+        .all()
+    )
+
+
+def list_shares_for_user(session: Session, user_id: int) -> List[Share]:
+    return (
+        session.query(Share)
+        .filter(Share.target_user_id == user_id)
+        .order_by(Share.created_at.desc())
+        .all()
+    )
+
+
+def delete_share(session: Session, share: Share) -> None:
+    session.delete(share)
+
+
+def create_group(
+    session: Session, *, name: str, description: str | None, join_code: str, admin_id: int
+) -> Group:
+    group = Group(name=name, description=description, join_code=join_code, admin_id=admin_id)
+    session.add(group)
+    session.flush()
+    return group
+
+
+def get_group_by_id(session: Session, group_id: int) -> Group | None:
+    return session.query(Group).filter(Group.id == group_id).one_or_none()
+
+
+def get_group_by_code(session: Session, join_code: str) -> Group | None:
+    return session.query(Group).filter(func.lower(Group.join_code) == join_code.lower()).one_or_none()
+
+
+def list_groups_for_user(session: Session, user_id: int) -> List[Group]:
+    membership_sub = (
+        session.query(GroupMembership.group_id)
+        .filter(GroupMembership.user_id == user_id, GroupMembership.status == "accepted")
+        .subquery()
+    )
+    return (
+        session.query(Group)
+        .filter((Group.admin_id == user_id) | (Group.id.in_(membership_sub)))
+        .order_by(Group.created_at.desc())
+        .all()
+    )
+
+
+def get_membership(session: Session, group_id: int, user_id: int) -> GroupMembership | None:
+    return (
+        session.query(GroupMembership)
+        .filter(GroupMembership.group_id == group_id, GroupMembership.user_id == user_id)
+        .one_or_none()
+    )
+
+
+def create_membership(session: Session, *, group_id: int, user_id: int, status: str = "pending") -> GroupMembership:
+    membership = GroupMembership(group_id=group_id, user_id=user_id, status=status)
+    session.add(membership)
+    session.flush()
+    return membership
+
+
+def list_pending_requests(session: Session, group_id: int) -> List[GroupMembership]:
+    return (
+        session.query(GroupMembership)
+        .filter(GroupMembership.group_id == group_id, GroupMembership.status == "pending")
+        .order_by(GroupMembership.created_at.asc())
+        .all()
+    )
+
+
+def list_group_members(session: Session, group_id: int) -> List[GroupMembership]:
+    return (
+        session.query(GroupMembership)
+        .filter(GroupMembership.group_id == group_id, GroupMembership.status == "accepted")
+        .order_by(GroupMembership.created_at.asc())
+        .all()
+    )
+
+
+def update_membership_status(session: Session, membership: GroupMembership, status: str) -> None:
+    membership.status = status
+
+
+def add_group_upload(
+    session: Session, *, group_id: int, upload_id: int, uploader_id: int
+) -> GroupUpload:
+    link = GroupUpload(group_id=group_id, upload_id=upload_id, uploader_id=uploader_id)
+    session.add(link)
+    session.flush()
+    return link
+
+
+def list_group_uploads(session: Session, group_id: int) -> List[GroupUpload]:
+    return (
+        session.query(GroupUpload)
+        .filter(GroupUpload.group_id == group_id)
+        .order_by(GroupUpload.created_at.desc())
+        .all()
+    )
