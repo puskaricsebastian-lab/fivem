@@ -1,0 +1,51 @@
+{% extends 'base.html' %}
+{% block content %}
+<section class="auth">
+  <div class="auth__card">
+    <div class="auth__header">
+      <h1>HTL Upload</h1>
+      <p class="muted">Melde dich an, um deine Dateien zu verwalten.</p>
+      <div class="auth__tabs" data-active="{{ view }}">
+        <button class="tab" data-tab="login">Einloggen</button>
+        <button class="tab" data-tab="register">Registrieren</button>
+      </div>
+    </div>
+
+    <div class="auth__body">
+      <form id="login-form" class="auth__form{% if view != 'login' %} is-hidden{% endif %}" method="post" action="{{ url_for('login') }}">
+        {% if errors and errors.get('global') %}<div class="alert alert--error">{{ errors.get('global') }}</div>{% endif %}
+        <label>E-Mail
+          <input type="email" name="email" placeholder="you@example.com" value="{{ values.email if values else '' }}" required>
+          {% if errors and errors.get('email') %}<span class="field-error">{{ errors.get('email') }}</span>{% endif %}
+        </label>
+        <label>Passwort
+          <input type="password" name="password" placeholder="••••••••" required>
+        </label>
+        <button type="submit" class="btn primary full">Einloggen</button>
+        <p class="muted small">Noch kein Konto? <a href="#" data-switch="register">Registrieren</a></p>
+      </form>
+
+      <form id="register-form" class="auth__form{% if view != 'register' %} is-hidden{% endif %}" method="post" action="{{ url_for('register') }}">
+        <label>E-Mail
+          <input type="email" name="email" placeholder="you@example.com" value="{{ values.email if values else '' }}" required>
+          {% if errors and errors.get('email') %}<span class="field-error">{{ errors.get('email') }}</span>{% endif %}
+        </label>
+        <label>Username
+          <input type="text" name="username" placeholder="dein-name" value="{{ values.username if values else '' }}" required>
+          {% if errors and errors.get('username') %}<span class="field-error">{{ errors.get('username') }}</span>{% endif %}
+        </label>
+        <label>Passwort
+          <input type="password" name="password" placeholder="Mindestens 8 Zeichen" required>
+          {% if errors and errors.get('password') %}<span class="field-error">{{ errors.get('password') }}</span>{% endif %}
+        </label>
+        <label>Passwort wiederholen
+          <input type="password" name="password_repeat" placeholder="Passwort bestätigen" required>
+          {% if errors and errors.get('password_repeat') %}<span class="field-error">{{ errors.get('password_repeat') }}</span>{% endif %}
+        </label>
+        <button type="submit" class="btn primary full">Konto anlegen</button>
+        <p class="muted small">Bereits registriert? <a href="#" data-switch="login">Einloggen</a></p>
+      </form>
+    </div>
+  </div>
+</section>
+{% endblock %}

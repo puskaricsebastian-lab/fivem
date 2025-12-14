@@ -1,1437 +1,555 @@
+import io
+import mimetypes
 import os
 import re
-import secrets
-import smtplib
-import string
-from datetime import date, datetime, timedelta
+import zipfile
+from datetime import datetime
 from pathlib import Path
+from typing import List
 
-from email.message import EmailMessage
-from dotenv import load_dotenv
-
-load_dotenv()
-
-from flask import (  # noqa: E402
+from flask import (
     Flask,
     abort,
-    jsonify,
+    flash,
     redirect,
     render_template,
     request,
     send_file,
-    session as flask_session,
     url_for,
 )
-from openpyxl import load_workbook  # noqa: E402
-from werkzeug.datastructures import FileStorage  # noqa: E402
-from werkzeug.security import check_password_hash, generate_password_hash  # noqa: E402
+from flask_login import (
+    LoginManager,
+    current_user,
+    login_required,
+    login_user,
+    logout_user,
+)
+from werkzeug.datastructures import FileStorage
+from werkzeug.security import check_password_hash, generate_password_hash
+from werkzeug.utils import secure_filename
 
-from models import (  # noqa: E402
-    Group,
-    GroupMembership,
-    GroupUpload,
-    EmailVerification,
-    Share,
+from models import (
+    File,
     User,
-    add_group_upload,
-    add_person_rows,
-    add_upload,
-    count_uploads_for_date,
+    add_file,
     create_user,
-    create_group,
-    create_membership,
-    create_share,
-    delete_share,
-    fetch_upload,
-    fetch_user_uploads,
-    fetch_uploads_desc,
-    get_membership,
-    get_share,
+    get_file,
     get_session,
-    get_group_by_code,
-    get_group_by_id,
     get_user_by_email,
     get_user_by_username,
-    get_user_by_id,
     init_db,
-    list_group_members,
-    list_group_uploads,
-    list_groups_for_user,
-    list_pending_requests,
-    list_shares_by_owner,
-    list_shares_for_user,
-    reset_daily_counter_if_needed,
-    update_membership_status,
-    user_storage_usage,
-    get_verification,
-    upsert_email_verification,
+    list_files,
+    remove_session,
+    toggle_favorite,
 )
 
+
 BASE_DIR = Path(__file__).resolve().parent
-STORAGE_ROOT = Path(os.environ.get("UPLOAD_ROOT", "/opt/htl-upload/uploads"))
-STORAGE_ROOT.mkdir(parents=True, exist_ok=True)
+UPLOAD_ROOT = Path(os.environ.get("UPLOAD_ROOT", "/opt/htl-upload/uploads"))
+UPLOAD_ROOT.mkdir(parents=True, exist_ok=True)
 
 app = Flask(__name__)
-app.config["SECRET_KEY"] = os.environ.get("SECRET_KEY", "dev-secret-key")
-MAX_UPLOAD_MB = int(os.environ.get("MAX_UPLOAD_MB", "500"))
-MAX_FILE_SIZE_MB = int(os.environ.get("MAX_FILE_SIZE_MB", str(MAX_UPLOAD_MB)))
-app.config["MAX_CONTENT_LENGTH"] = MAX_UPLOAD_MB * 1024 * 1024
-MAX_FILE_SIZE_BYTES = MAX_FILE_SIZE_MB * 1024 * 1024
-MAX_STORAGE_PER_USER_MB = os.environ.get("MAX_STORAGE_PER_USER_MB")
-MAX_STORAGE_PER_USER_BYTES = int(MAX_STORAGE_PER_USER_MB) * 1024 * 1024 if MAX_STORAGE_PER_USER_MB else None
-app.config["SESSION_COOKIE_HTTPONLY"] = True
-app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
-app.permanent_session_lifetime = timedelta(days=14)
-ALLOWED_EXCEL_SUFFIXES = {".xlsx"}
-FREE_DAILY_LIMIT = 5
+app.secret_key = os.environ.get("SECRET_KEY", "change-me")
+
+login_manager = LoginManager(app)
+login_manager.login_view = "auth"
 
 
-def is_trial_active(user: User) -> bool:
-    if not user or not user.trial_expires_at:
-        return False
-    if user.trial_expires_at >= datetime.utcnow():
-        return True
-    user.plan = "free"
-    return False
-
-
-def get_current_user(db_session) -> User | None:
-    user_id = flask_session.get("user_id")
-    if not user_id:
-        return None
-    return get_user_by_id(db_session, user_id)
-
-
-def get_theme(user: User | None) -> str:
-    if user and user.theme:
-        flask_session["theme"] = user.theme
-        return user.theme
-    return flask_session.get("theme", "dark")
-
-
-def require_user(db_session):
-    user = get_current_user(db_session)
-    if not user:
-        return None
-    ensure_csrf_token()
-    return user
-
-
-def set_theme_preference(user: User | None, theme: str) -> None:
-    normalized = "light" if theme == "light" else "dark"
-    flask_session["theme"] = normalized
-    if user:
-        user.theme = normalized
-
-
-def ensure_csrf_token() -> str:
-    token = flask_session.get("csrf_token")
-    if not token:
-        token = secrets.token_hex(16)
-        flask_session["csrf_token"] = token
-    return token
-
-
-def generate_verification_code() -> str:
-    return f"{secrets.randbelow(1_000_000):06d}"
-
-
-def send_verification_email(recipient: str, code: str) -> None:
-    host = os.environ.get("SMTP_HOST")
-    port = int(os.environ.get("SMTP_PORT", "587"))
-    user = os.environ.get("SMTP_USER")
-    password = os.environ.get("SMTP_PASS")
-    use_tls = os.environ.get("SMTP_TLS", "true").lower() == "true"
-    sender = os.environ.get("MAIL_FROM", user)
-
-    if not host or not user or not password or not sender:
-        raise RuntimeError("SMTP-Konfiguration fehlt")
-
-    message = EmailMessage()
-    message["Subject"] = "Dein HTL Upload Verifikationscode"
-    message["From"] = sender
-    message["To"] = recipient
-    message.set_content(
-        f"Hallo,\n\nDein Verifikationscode lautet: {code}\nDer Code ist 10 Minuten gültig.\n\nHTL Upload"
-    )
-
-    with smtplib.SMTP(host, port) as server:
-        if use_tls:
-            server.starttls()
-        server.login(user, password)
-        server.send_message(message)
-
-
-def generate_join_code(db_session) -> str:
-    alphabet = string.ascii_uppercase + string.digits
-    while True:
-        candidate = "#" + "".join(secrets.choice(alphabet) for _ in range(5))
-        if not get_group_by_code(db_session, candidate):
-            return candidate
-
-
-def share_for_user_and_upload(db_session, user_id: int, upload_id: int):
-    return (
-        db_session.query(Share)
-        .filter(Share.upload_id == upload_id, Share.target_user_id == user_id)
-        .one_or_none()
-    )
-
-
-def group_link_for_upload(db_session, upload_id: int) -> GroupUpload | None:
-    return db_session.query(GroupUpload).filter(GroupUpload.upload_id == upload_id).one_or_none()
-
-
-def membership_allows(group: Group, membership: GroupMembership | None, user: User) -> bool:
-    if user.is_admin:
-        return True
-    if group.admin_id == user.id:
-        return True
-    if membership and membership.status == "accepted":
-        return True
-    return False
-
-
-def enforce_quota(db_session, user: User, pending_uploads: int) -> tuple[bool, int]:
-    """Return (allowed, remaining) for today."""
-
-    reset_daily_counter_if_needed(user)
-    today_count = count_uploads_for_date(db_session, user.id, date.today())
-    if user.plan == "premium" or is_trial_active(user):
-        return True, -1
-
-    remaining = FREE_DAILY_LIMIT - today_count
-    if pending_uploads > remaining:
-        return False, remaining
-
-    return True, remaining - pending_uploads
-
-
-def file_size_bytes(file_storage: FileStorage) -> int:
-    if file_storage.content_length is not None:
-        return int(file_storage.content_length)
-
-    try:
-        current = file_storage.stream.tell()
-        file_storage.stream.seek(0, os.SEEK_END)
-        size = file_storage.stream.tell()
-        file_storage.stream.seek(current)
-        return int(size)
-    except Exception:
-        return 0
-
-
-def validate_size_and_capacity(db_session, user: User, files: list[FileStorage]) -> tuple[bool, str | None]:
-    measured = []
-    for file_storage in files:
-        size = file_size_bytes(file_storage)
-        if size > MAX_FILE_SIZE_BYTES:
-            readable = round(MAX_FILE_SIZE_BYTES / (1024 * 1024))
-            return False, f"Datei '{file_storage.filename}' ist größer als {readable} MB."
-        measured.append(size)
-        try:
-            file_storage.stream.seek(0)
-        except Exception:
-            pass
-
-    if MAX_STORAGE_PER_USER_BYTES:
-        current_usage = user_storage_usage(db_session, user.id)
-        incoming = sum(measured)
-        if current_usage + incoming > MAX_STORAGE_PER_USER_BYTES:
-            remaining = max(0, MAX_STORAGE_PER_USER_BYTES - current_usage)
-            remaining_mb = round(remaining / (1024 * 1024), 2)
-            return False, f"Speicherlimit erreicht. Verfügbar: {remaining_mb} MB. Bitte lösche Dateien oder wähle kleinere Uploads."
-
-    return True, None
-
-
-def sanitize_relative_path(path: str) -> Path:
-    cleaned_parts = []
-    for part in Path(path).parts:
-        if part in {"..", ".", ""}:
-            continue
-        cleaned_parts.append(part)
-    return Path(*cleaned_parts)
-
-
-USERNAME_PATTERN = re.compile(r"^[a-z0-9_-]{3,20}$")
+# ---------------------------------------------------------------------------
+# helpers
+# ---------------------------------------------------------------------------
+USERNAME_RE = re.compile(r"^[a-z0-9_-]{3,20}$")
 
 
 def sanitize_username(username: str) -> str | None:
-    candidate = username.strip().lower()
-    if USERNAME_PATTERN.match(candidate):
-        return candidate
+    username = (username or "").strip().lower()
+    if USERNAME_RE.match(username):
+        return username
     return None
 
 
-def validate_email(email: str) -> bool:
-    return bool(re.match(r"^[^@\s]+@[^@\s]+\.[^@\s]+$", email.strip()))
+def sanitize_rel_path(rel_path: str | None) -> str:
+    if not rel_path:
+        return ""
+    parts: List[str] = []
+    for raw in Path(rel_path).parts:
+        if raw in {"..", ".", ""}:
+            continue
+        safe = re.sub(r"[^a-zA-Z0-9._-]", "-", raw).strip("-")
+        if safe:
+            parts.append(safe)
+    return "/".join(parts)
 
 
-def validate_password(pwd: str) -> bool:
-    if len(pwd) < 8:
-        return False
-    has_upper = any(ch.isupper() for ch in pwd)
-    has_lower = any(ch.islower() for ch in pwd)
-    has_digit = any(ch.isdigit() for ch in pwd)
-    return has_upper and has_lower and has_digit
+def ensure_user_root(username: str) -> Path:
+    root = UPLOAD_ROOT / username
+    root.mkdir(parents=True, exist_ok=True)
+    return root
 
 
-def sanitize_folder_label(label: str) -> str:
-    cleaned = "".join(ch for ch in label if ch.isalnum() or ch in {" ", "_", "-"}).strip()
-    return cleaned or "Ordner"
+def safe_join_user_path(username: str, rel_path: str, filename: str | None = None) -> Path:
+    root = ensure_user_root(username)
+    clean_rel = sanitize_rel_path(rel_path)
+    target = root / clean_rel
+    if filename:
+        target = target / filename
+    resolved = target.resolve()
+    if not str(resolved).startswith(str(root.resolve())):
+        raise ValueError("Unsafe path")
+    return resolved
 
 
-def ensure_upload_dir(path: Path) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
+def list_subfolders(username: str, rel_path: str) -> List[str]:
+    base = safe_join_user_path(username, rel_path)
+    base.mkdir(parents=True, exist_ok=True)
+    return sorted([p.name for p in base.iterdir() if p.is_dir()])
 
 
-def build_storage_paths(folder_label: str, relative: Path, *, username: str) -> tuple[Path, Path, Path]:
-    today = datetime.utcnow()
-    base = Path(username) / f"{today:%Y}" / f"{today:%m}" / folder_label
-    relative_server = base / relative
-    destination = STORAGE_ROOT / relative_server
-    rel_for_user = Path(folder_label) / relative if folder_label else relative
-    return destination, relative_server, rel_for_user
+def human_size(num: int) -> str:
+    for unit in ["B", "KB", "MB", "GB", "TB"]:
+        if num < 1024:
+            return f"{num:.1f} {unit}" if unit != "B" else f"{num} B"
+        num /= 1024
+    return f"{num:.1f} PB"
 
 
-def save_file(
-    session,
-    file_storage: FileStorage,
-    folder_label: str,
-    uploader_ip: str | None,
-    *,
-    user_id: int,
-    username: str,
-):
-    relative = sanitize_relative_path(file_storage.filename)
-    if not relative.parts:
+def current_session():
+    return get_session()
+
+
+@login_manager.user_loader
+def load_user(user_id: str):
+    if not user_id:
         return None
-
-    destination, server_relative, rel_for_user = build_storage_paths(
-        folder_label, relative, username=username
-    )
-    ensure_upload_dir(destination)
-    file_storage.save(destination)
-
-    size = destination.stat().st_size
-    content_type = file_storage.mimetype or "application/octet-stream"
-    upload = add_upload(
-        session,
-        user_id=user_id,
-        original_filename=str(relative),
-        server_path=str(server_relative),
-        rel_path=str(rel_for_user),
-        size_bytes=size,
-        content_type=content_type,
-        uploader_ip=uploader_ip,
-    )
-    return upload
+    with current_session() as session:
+        return session.get(User, int(user_id))
 
 
-def parse_excel_names(file_storage):
-    suffix = Path(file_storage.filename or "").suffix.lower()
-    if suffix not in ALLOWED_EXCEL_SUFFIXES:
-        raise ValueError("Ungültiger Dateityp. Bitte eine .xlsx-Datei hochladen.")
-
-    file_storage.stream.seek(0)
-    try:
-        workbook = load_workbook(file_storage, read_only=True, data_only=True)
-    except Exception as exc:  # noqa: BLE001
-        raise ValueError("Die Datei konnte nicht gelesen werden. Bitte das offizielle Template verwenden.") from exc
-
-    sheet = workbook.active
-    header_rows = sheet.iter_rows(max_row=1, values_only=False)
-    try:
-        first_row = next(header_rows)
-    except StopIteration as exc:  # empty sheet
-        raise ValueError("Leere Datei. Bitte das offizielle Template verwenden.") from exc
-
-    header = [str(cell.value).strip().lower() if cell.value is not None else "" for cell in first_row]
-    if len(header) < 2 or header[0] != "vorname" or header[1] != "nachname":
-        raise ValueError("Ungültiges Format – bitte das offizielle Template verwenden.")
-
-    names = []
-    for first_name, last_name in sheet.iter_rows(min_row=2, max_col=2, values_only=True):
-        if first_name is None and last_name is None:
-            continue
-        first_clean = str(first_name).strip() if first_name is not None else ""
-        last_clean = str(last_name).strip() if last_name is not None else ""
-        if not first_clean and not last_clean:
-            continue
-        names.append({"vorname": first_clean, "nachname": last_clean})
-
-    if not names:
-        raise ValueError("Keine Namen gefunden. Bitte Zeilen ausfüllen und erneut versuchen.")
-
-    return names
+@app.teardown_appcontext
+def cleanup(_exc):
+    # ensure scoped sessions are removed
+    remove_session()
 
 
-def render_workspace(db_session, user: User, *, names=None, success_message=None, error_message=None):
-    uploads = fetch_user_uploads(db_session, user.id, limit=25)
-    today_count = count_uploads_for_date(db_session, user.id, date.today())
-    theme = get_theme(user)
-    ensure_csrf_token()
-    usage_bytes = user_storage_usage(db_session, user.id)
-    return render_template(
-        "index.html",
-        uploads=uploads,
-        names=names or [],
-        success_message=success_message,
-        error_message=error_message,
-        user=user,
-        daily_limit=FREE_DAILY_LIMIT,
-        today_count=today_count,
-        theme=theme,
-        datetime=datetime,
-        csrf_token=flask_session.get("csrf_token"),
-        max_file_size_mb=MAX_FILE_SIZE_MB,
-        max_upload_mb=MAX_UPLOAD_MB,
-        storage_used=usage_bytes,
-        storage_limit=MAX_STORAGE_PER_USER_BYTES,
-    )
-
-
-def success_text_from_query(param: str | None) -> str | None:
-    mapping = {
-        "registered": "Registrierung erfolgreich – du bist jetzt eingeloggt.",
-        "logged_in": "Login erfolgreich.",
-        "upload_saved": "Upload erfolgreich gespeichert – deine Dateien sind in deiner Cloud sichtbar.",
-        "namensliste_saved": "Namensliste gespeichert und verknüpft.",
-        "deleted": "Datei wurde aus deiner Cloud gelöscht.",
-        "logged_out": "Abgemeldet.",
-    }
-    return mapping.get(param or "")
-
-
-def error_text_from_query(param: str | None) -> str | None:
-    mapping = {
-        "login_required": "Bitte zuerst einloggen, um fortzufahren.",
-        "unauthorized": "Kein Zugriff auf diese Datei.",
-    }
-    return mapping.get(param or "")
-
-
-def render_landing_page(*, success_message=None, error_message=None):
-    theme = get_theme(None)
-    return render_template(
-        "landing.html",
-        theme=theme,
-        success_message=success_message,
-        error_message=error_message,
-        daily_limit=FREE_DAILY_LIMIT,
-    )
-
-
-def render_admin_login_page(*, success_message=None, error_message=None):
-    theme = get_theme(None)
-    return render_template(
-        "admin_login.html",
-        theme=theme,
-        success_message=success_message,
-        error_message=error_message,
-    )
-
-
-@app.route("/")
-def landing():
-    db_session = get_session()
-    try:
-        user = get_current_user(db_session)
-        if user:
-            return redirect(url_for("app_home"))
-    finally:
-        db_session.close()
-
-    success_message = success_text_from_query(request.args.get("success"))
-    error_message = error_text_from_query(request.args.get("error")) or request.args.get("message")
-    return render_landing_page(success_message=success_message, error_message=error_message)
-
-
-@app.route("/app")
-def app_home():
-    db_session = get_session()
-    try:
-        user = require_user(db_session)
-        if not user:
-            return redirect(url_for("landing", error="login_required"))
-
-        success_message = success_text_from_query(request.args.get("success"))
-        error_message = error_text_from_query(request.args.get("error")) or request.args.get("message")
-        return render_workspace(
-            db_session,
-            user,
-            success_message=success_message,
-            error_message=error_message,
-        )
-    finally:
-        db_session.close()
+# ---------------------------------------------------------------------------
+# auth views
+# ---------------------------------------------------------------------------
+@app.route("/", methods=["GET"])
+def auth():
+    if current_user.is_authenticated:
+        return redirect(url_for("dashboard"))
+    return render_template("auth.html", view="login")
 
 
 @app.route("/register", methods=["POST"])
 def register():
+    if current_user.is_authenticated:
+        return redirect(url_for("dashboard"))
+
     email = (request.form.get("email") or "").strip()
-    username_raw = (request.form.get("username") or "").strip()
+    username_raw = request.form.get("username") or ""
     password = request.form.get("password") or ""
-    confirm = request.form.get("password_confirm") or ""
-    plan = (request.form.get("plan") or "free").strip().lower()
-    if plan not in {"free", "premium"}:
-        plan = "free"
+    password2 = request.form.get("password_repeat") or ""
 
     username = sanitize_username(username_raw)
-    if not email or not username or not password:
-        return render_landing_page(error_message="Bitte gültige E-Mail, Username und Passwort ausfüllen.")
-    if not validate_email(email):
-        return render_landing_page(error_message="E-Mail ist ungültig.")
-    if not validate_password(password):
-        return render_landing_page(
-            error_message="Passwort zu schwach (min. 8 Zeichen, 1 Groß-, 1 Kleinbuchstabe, 1 Zahl)."
-        )
-    if password != confirm:
-        return render_landing_page(error_message="Passwörter stimmen nicht überein.")
+    errors = {}
 
-    db_session = get_session()
-    try:
-        if get_user_by_email(db_session, email):
-            return render_landing_page(error_message="Diese E-Mail ist bereits registriert.")
-        if get_user_by_username(db_session, username):
-            return render_landing_page(error_message="Dieser Username ist bereits vergeben.")
+    if not email or "@" not in email:
+        errors["email"] = "Bitte eine gültige E-Mail angeben."
+    if not username:
+        errors["username"] = "Username 3-20 Zeichen, a-z, 0-9, _ oder -."
+    if password != password2:
+        errors["password_repeat"] = "Passwörter stimmen nicht überein."
+    if not valid_password(password):
+        errors["password"] = "Passwort zu schwach (min 8, Groß/Klein, Zahl)."
 
-        password_hash = generate_password_hash(password)
-        user = create_user(
-            db_session,
-            email=email,
-            username=username,
-            password_hash=password_hash,
-            plan=plan,
-        )
-        code = generate_verification_code()
-        now = datetime.utcnow()
-        upsert_email_verification(
-            db_session,
-            user_id=user.id,
-            code_hash=generate_password_hash(code),
-            expires_at=now + timedelta(minutes=10),
-            sent_at=now,
-        )
-        db_session.commit()
-        try:
-            send_verification_email(email, code)
-        except Exception:
-            pass
-        flask_session["pending_verification_user_id"] = user.id
-        flask_session.permanent = True
-    except Exception:  # noqa: BLE001
-        db_session.rollback()
-        return render_landing_page(error_message="Registrierung fehlgeschlagen. Bitte später erneut versuchen.")
-    finally:
-        db_session.close()
+    with current_session() as session:
+        if email and get_user_by_email(session, email):
+            errors["email"] = "E-Mail wird bereits verwendet."
+        if username and get_user_by_username(session, username):
+            errors["username"] = "Username ist vergeben."
 
-    return redirect(url_for("verify_email"))
+        if errors:
+            return render_template("auth.html", view="register", errors=errors, values=request.form), 400
+
+        pw_hash = generate_password_hash(password)
+        user = create_user(session, email=email, username=username, password_hash=pw_hash)
+        session.commit()
+        login_user(user)
+        flash("Registrierung erfolgreich. Willkommen!", "success")
+        return redirect(url_for("dashboard"))
 
 
 @app.route("/login", methods=["POST"])
 def login():
+    if current_user.is_authenticated:
+        return redirect(url_for("dashboard"))
+
     email = (request.form.get("email") or "").strip()
     password = request.form.get("password") or ""
+    errors = {}
 
-    if not email or not password:
-        return render_landing_page(error_message="Bitte E-Mail und Passwort ausfüllen.")
-
-    db_session = get_session()
-    try:
-        user = get_user_by_email(db_session, email)
+    with current_session() as session:
+        user = get_user_by_email(session, email) if email else None
         if not user or not check_password_hash(user.password_hash, password):
-            return render_landing_page(error_message="Login fehlgeschlagen. Bitte E-Mail und Passwort prüfen.")
-        if not user.email_verified:
-            flask_session["pending_verification_user_id"] = user.id
-            return redirect(url_for("verify_email", error="verification_required"))
-        flask_session["user_id"] = user.id
-        flask_session.permanent = True
-    finally:
-        db_session.close()
-
-    return redirect(url_for("app_home", success="logged_in"))
+            errors["global"] = "Login-Daten ungültig."
+        if errors:
+            return render_template("auth.html", view="login", errors=errors, values=request.form), 401
+        login_user(user)
+        flash("Willkommen zurück!", "success")
+        return redirect(url_for("dashboard"))
 
 
-@app.route("/verify-email", methods=["GET", "POST"])
-def verify_email():
-    user_id = flask_session.get("pending_verification_user_id")
-    db_session = get_session()
-    try:
-        user = get_user_by_id(db_session, user_id) if user_id else None
-        if not user:
-            return redirect(url_for("landing", error="login_required"))
-
-        record = get_verification(db_session, user.id)
-        message = None
-        error = None
-        cooldown_seconds = 0
-        now = datetime.utcnow()
-        if record and record.last_sent_at:
-            elapsed = (now - record.last_sent_at).total_seconds()
-            cooldown_seconds = max(0, 60 - int(elapsed))
-
-        if request.method == "POST":
-            action = request.form.get("action")
-            if action == "resend":
-                if cooldown_seconds > 0:
-                    error = f"Bitte warte {cooldown_seconds} Sekunden, bevor du erneut sendest."
-                else:
-                    code = generate_verification_code()
-                    upsert_email_verification(
-                        db_session,
-                        user_id=user.id,
-                        code_hash=generate_password_hash(code),
-                        expires_at=now + timedelta(minutes=10),
-                        sent_at=now,
-                    )
-                    db_session.commit()
-                    try:
-                        send_verification_email(user.email, code)
-                        message = "Neuer Code gesendet."
-                    except Exception:
-                        error = "Code konnte nicht gesendet werden (SMTP prüfen)."
-            else:
-                code = (request.form.get("code") or "").strip()
-                if not record:
-                    error = "Kein Code gefunden. Bitte erneut senden."
-                elif record.attempts >= 5:
-                    error = "Zu viele Versuche. Bitte Code erneut senden."
-                elif record.expires_at < now:
-                    error = "Code abgelaufen. Bitte erneut senden."
-                elif not check_password_hash(record.code_hash, code):
-                    record.attempts += 1
-                    db_session.commit()
-                    error = "Code ungültig."
-                else:
-                    user.email_verified = True
-                    record.attempts = 0
-                    db_session.commit()
-                    flask_session.pop("pending_verification_user_id", None)
-                    return redirect(url_for("landing", success="logged_in"))
-
-        theme = get_theme(None)
-        return render_template(
-            "verify_email.html",
-            user=user,
-            theme=theme,
-            success_message=message,
-            error_message=error,
-            cooldown=cooldown_seconds,
-            csrf_token=ensure_csrf_token(),
-        )
-    finally:
-        db_session.close()
-
-
-@app.route("/admin/login", methods=["GET", "POST"])
-def admin_login():
-    if request.method == "GET":
-        success_message = success_text_from_query(request.args.get("success"))
-        error_message = error_text_from_query(request.args.get("error")) or request.args.get("message")
-        return render_admin_login_page(success_message=success_message, error_message=error_message)
-
-    email = (request.form.get("email") or "").strip()
-    password = request.form.get("password") or ""
-
-    if not email or not password:
-        return render_admin_login_page(error_message="Bitte E-Mail und Passwort ausfüllen.")
-
-    db_session = get_session()
-    try:
-        user = get_user_by_email(db_session, email)
-        if not user or not check_password_hash(user.password_hash, password) or not user.is_admin:
-            return render_admin_login_page(error_message="Admin-Zugang nicht gültig.")
-        flask_session["user_id"] = user.id
-        flask_session.permanent = True
-    finally:
-        db_session.close()
-
-    return redirect(url_for("admin_panel", success="logged_in"))
-
-
-@app.route("/logout", methods=["POST"])
+@app.route("/logout")
+@login_required
 def logout():
-    flask_session.pop("user_id", None)
-    return redirect(url_for("landing", success="logged_out"))
+    logout_user()
+    flash("Abgemeldet.", "info")
+    return redirect(url_for("auth"))
 
 
-@app.route("/settings", methods=["GET", "POST"])
-def settings():
-    db_session = get_session()
-    try:
-        user = require_user(db_session)
-        if not user:
-            return redirect(url_for("landing", error="login_required"))
-        theme = get_theme(user)
-
-        if request.method == "POST":
-            action = request.form.get("action")
-            if action == "theme":
-                set_theme_preference(user, request.form.get("theme", "dark"))
-                if user:
-                    db_session.commit()
-                return render_template(
-                    "settings.html",
-                    user=user,
-                    theme=get_theme(user),
-                    message="Theme aktualisiert.",
-                    datetime=datetime,
-                )
-
-            if action == "start_trial" and user:
-                if is_trial_active(user):
-                    message = "Trial läuft bereits."
-                else:
-                    user.plan = "trial"
-                    user.trial_expires_at = datetime.utcnow() + timedelta(days=7)
-                    db_session.commit()
-                    message = "7-Tage-Premium-Trial gestartet."
-                return render_template(
-                    "settings.html",
-                    user=user,
-                    theme=get_theme(user),
-                    message=message,
-                    datetime=datetime,
-                )
-
-        return render_template("settings.html", user=user, theme=theme, datetime=datetime)
-    finally:
-        db_session.close()
+# ---------------------------------------------------------------------------
+# dashboard & files
+# ---------------------------------------------------------------------------
+@app.route("/dashboard")
+@login_required
+def dashboard():
+    with current_session() as session:
+        files, _ = list_files(session, current_user.id, per_page=10)
+        return render_template("dashboard.html", recent=files)
 
 
-@app.route("/upload", methods=["POST"])
-def upload():
-    files = request.files.getlist("files")
-    folder_label_input = request.form.get("folderName", "")
-    folder_label = sanitize_folder_label(folder_label_input)
-
-    if not files:
-        return redirect(url_for("app_home", message="Keine Dateien erhalten."))
-
-    db_session = get_session()
-    try:
-        user = require_user(db_session)
-        if not user:
-            return redirect(url_for("landing", error="login_required"))
-
-        allowed, remaining = enforce_quota(db_session, user, len(files))
-        if not allowed:
-            msg = (
-                "Freies Kontingent erschöpft (maximal "
-                f"{FREE_DAILY_LIMIT} Uploads pro Tag, verbleibend: {remaining}). Upgrade auf Premium für unbegrenzte Uploads."
-            )
-            return render_workspace(db_session, user, error_message=msg), 403
-
-        size_ok, size_error = validate_size_and_capacity(db_session, user, files)
-        if not size_ok:
-            return render_workspace(db_session, user, error_message=size_error), 400
-
-        saved = 0
-        safe_username = sanitize_username(user.username) or f"user-{user.id}"
-        for file_storage in files:
-            uploaded = save_file(
-                db_session,
-                file_storage,
-                folder_label,
-                request.remote_addr,
-                user_id=user.id,
-                username=safe_username,
-            )
-            if uploaded:
-                saved += 1
-        if saved == 0:
-            db_session.rollback()
-            return render_workspace(db_session, user, error_message="Es konnte nichts gespeichert werden."), 400
-        db_session.commit()
-    except Exception:  # noqa: BLE001
-        db_session.rollback()
-        return render_workspace(db_session, user, error_message="Speichern fehlgeschlagen."), 500
-    finally:
-        db_session.close()
-
-    return redirect(url_for("my_uploads", success="upload_saved"))
-
-@app.route("/upload-namensliste", methods=["GET", "POST"])
-def upload_namensliste():
-    if request.method == "GET":
-        return redirect(url_for("app_home"))
-
-    file_storage = request.files.get("namensliste")
-    if not file_storage or file_storage.filename == "":
-        return redirect(url_for("app_home", message="Bitte wähle eine Excel-Datei aus."))
-
-    try:
-        names = parse_excel_names(file_storage)
-    except ValueError as exc:
-        return redirect(url_for("app_home", message=str(exc)))
-    except Exception:  # noqa: BLE001
-        return redirect(
-            url_for(
-                "app_home",
-                message="Die Namensliste konnte nicht verarbeitet werden. Bitte das offizielle Template verwenden.",
-            )
-        )
-
-    db_session = get_session()
-    folder_label = sanitize_folder_label(Path(file_storage.filename).stem)
-    try:
-        user = require_user(db_session)
-        if not user:
-            return redirect(url_for("landing", error="login_required"))
-
-        allowed, remaining = enforce_quota(db_session, user, 1)
-        if not allowed:
-            msg = (
-                "Freies Kontingent erschöpft (maximal "
-                f"{FREE_DAILY_LIMIT} Uploads pro Tag, verbleibend: {remaining}). Upgrade auf Premium für unbegrenzte Uploads."
-            )
-            return render_workspace(db_session, user, error_message=msg), 403
-
-        size_ok, size_error = validate_size_and_capacity(db_session, user, [file_storage])
-        if not size_ok:
-            return render_workspace(db_session, user, error_message=size_error), 400
-
-        file_storage.stream.seek(0)
-        uploaded = save_file(
-            db_session,
-            file_storage,
-            folder_label,
-            request.remote_addr,
-            user_id=user.id,
-            username=sanitize_username(user.username) or f"user-{user.id}",
-        )
-        if not uploaded:
-            db_session.rollback()
-            return render_workspace(db_session, user, error_message="Es konnte nichts gespeichert werden."), 400
-        add_person_rows(db_session, uploaded, names)
-        db_session.commit()
-    except Exception:  # noqa: BLE001
-        db_session.rollback()
-        return render_workspace(db_session, user, error_message="Die Namensliste konnte nicht gespeichert werden.")
-    finally:
-        db_session.close()
-
-    return redirect(url_for("my_uploads", success="namensliste_saved"))
-
-
-@app.route("/my/uploads")
 @app.route("/files")
-def my_uploads():
-    db_session = get_session()
+@login_required
+def files_view():
+    rel_path = sanitize_rel_path(request.args.get("path"))
+    search = request.args.get("search") or None
+    type_filter = request.args.get("type") or None
+    date_filter = request.args.get("date") or None
+    favorites_only = request.args.get("favorites") == "1"
+    sort = request.args.get("sort") or None
+    page = int(request.args.get("page", 1))
+    per_page = 25
     try:
-        user = require_user(db_session)
-        if not user:
-            return redirect(url_for("landing", error="login_required"))
-
-        sort = request.args.get("sort", "date_desc")
-        allowed_sorts = {"date_desc", "date_asc", "name_asc", "name_desc", "size_asc", "size_desc"}
-        if sort not in allowed_sorts:
-            sort = "date_desc"
-
-        uploads = fetch_user_uploads(db_session, user.id, sort=sort)
-        for item in uploads:
-            if not item.rel_path:
-                try:
-                    item.rel_path = str(Path(item.server_path).relative_to(Path(item.server_path).parts[0]))
-                except Exception:
-                    item.rel_path = item.original_filename
-        theme = get_theme(user)
-        ensure_csrf_token()
-        success_message = success_text_from_query(request.args.get("success"))
-        error_message = error_text_from_query(request.args.get("error")) or request.args.get("message")
-        return render_template(
-            "my_uploads.html",
-            uploads=uploads,
-            user=user,
-            theme=theme,
-            success_message=success_message,
-            error_message=error_message,
-            csrf_token=flask_session.get("csrf_token"),
-            datetime=datetime,
+        subfolders = list_subfolders(current_user.username, rel_path)
+    except ValueError:
+        abort(400)
+    with current_session() as session:
+        files, total = list_files(
+            session,
+            current_user.id,
+            rel_path=rel_path or None,
+            search=search,
+            type_filter=type_filter,
+            date_filter=date_filter,
+            favorites_only=favorites_only,
             sort=sort,
-            storage_used=user_storage_usage(db_session, user.id),
-            storage_limit=MAX_STORAGE_PER_USER_BYTES,
+            page=page,
+            per_page=per_page,
         )
-    finally:
-        db_session.close()
-
-
-@app.route("/shares/new", methods=["GET", "POST"])
-def new_share():
-    db_session = get_session()
-    try:
-        user = require_user(db_session)
-        if not user:
-            return redirect(url_for("landing", error="login_required"))
-
-        uploads = fetch_user_uploads(db_session, user.id, sort="date_desc")
-        theme = get_theme(user)
-        ensure_csrf_token()
-        if request.method == "POST":
-            token = flask_session.get("csrf_token")
-            if not token or request.form.get("csrf_token") != token:
-                return render_template(
-                    "share_new.html",
-                    user=user,
-                    theme=theme,
-                    uploads=uploads,
-                    error_message="Aktion nicht erlaubt.",
-                    datetime=datetime,
-                    csrf_token=token,
-                ), 403
-
-            target_username = (request.form.get("target_username") or "").strip()
-            upload_id = request.form.get("upload_id")
-
-            if not target_username or not upload_id:
-                return render_template(
-                    "share_new.html",
-                    user=user,
-                    theme=theme,
-                    uploads=uploads,
-                    error_message="Bitte Benutzername und Upload auswählen.",
-                    datetime=datetime,
-                    csrf_token=token,
-                )
-
-            target_user = get_user_by_username(db_session, target_username)
-            if not target_user:
-                return render_template(
-                    "share_new.html",
-                    user=user,
-                    theme=theme,
-                    uploads=uploads,
-                    error_message="Benutzer wurde nicht gefunden.",
-                    datetime=datetime,
-                    csrf_token=token,
-                )
-
-            upload_obj = fetch_upload(db_session, int(upload_id))
-            if not upload_obj or upload_obj.user_id != user.id:
-                return render_template(
-                    "share_new.html",
-                    user=user,
-                    theme=theme,
-                    uploads=uploads,
-                    error_message="Upload gehört dir nicht.",
-                    datetime=datetime,
-                    csrf_token=token,
-                ), 403
-
-            create_share(
-                db_session,
-                owner_id=user.id,
-                target_user_id=target_user.id,
-                upload_id=upload_obj.id,
-            )
-            db_session.commit()
-            return redirect(url_for("shares_mine", success="share_created"))
-
-        return render_template(
-            "share_new.html",
-            user=user,
-            theme=theme,
-            uploads=uploads,
-            datetime=datetime,
-            csrf_token=flask_session.get("csrf_token"),
-        )
-    finally:
-        db_session.close()
-
-
-@app.route("/shares/mine")
-def shares_mine():
-    db_session = get_session()
-    try:
-        user = require_user(db_session)
-        if not user:
-            return redirect(url_for("landing", error="login_required"))
-        ensure_csrf_token()
-        shares = list_shares_by_owner(db_session, user.id)
-        theme = get_theme(user)
-        success_message = None
-        if request.args.get("success") == "share_created":
-            success_message = "Share wurde erstellt."
-        return render_template(
-            "shares_mine.html",
-            user=user,
-            theme=theme,
-            shares=shares,
-            datetime=datetime,
-            csrf_token=flask_session.get("csrf_token"),
-            success_message=success_message,
-        )
-    finally:
-        db_session.close()
-
-
-@app.route("/shared-with-me")
-def shared_with_me():
-    db_session = get_session()
-    try:
-        user = require_user(db_session)
-        if not user:
-            return redirect(url_for("landing", error="login_required"))
-        theme = get_theme(user)
-        shares = list_shares_for_user(db_session, user.id)
-        return render_template(
-            "shared_with_me.html",
-            user=user,
-            theme=theme,
-            shares=shares,
-            datetime=datetime,
-        )
-    finally:
-        db_session.close()
-
-
-@app.route("/shares/<int:share_id>/delete", methods=["POST"])
-def delete_share_route(share_id: int):
-    db_session = get_session()
-    try:
-        user = require_user(db_session)
-        if not user:
-            return redirect(url_for("landing", error="login_required"))
-        token = flask_session.get("csrf_token")
-        if not token or request.form.get("csrf_token") != token:
-            return redirect(url_for("shares_mine")), 403
-        share_obj = get_share(db_session, share_id)
-        if not share_obj or share_obj.owner_id != user.id:
-            return redirect(url_for("shares_mine", error="unauthorized")), 403
-        delete_share(db_session, share_obj)
-        db_session.commit()
-    finally:
-        db_session.close()
-    return redirect(url_for("shares_mine"))
-
-
-@app.route("/groups")
-def groups_overview():
-    db_session = get_session()
-    try:
-        user = require_user(db_session)
-        if not user:
-            return redirect(url_for("landing", error="login_required"))
-        groups = list_groups_for_user(db_session, user.id)
-        theme = get_theme(user)
-        return render_template("groups.html", user=user, theme=theme, groups=groups, datetime=datetime)
-    finally:
-        db_session.close()
-
-
-@app.route("/groups/new", methods=["GET", "POST"])
-def create_group_view():
-    db_session = get_session()
-    try:
-        user = require_user(db_session)
-        if not user:
-            return redirect(url_for("landing", error="login_required"))
-        ensure_csrf_token()
-        theme = get_theme(user)
-        if request.method == "POST":
-            token = flask_session.get("csrf_token")
-            if not token or request.form.get("csrf_token") != token:
-                return redirect(url_for("create_group_view")), 403
-            name = (request.form.get("name") or "").strip()
-            description = (request.form.get("description") or "").strip()
-            if not name:
-                return render_template(
-                    "group_new.html",
-                    user=user,
-                    theme=theme,
-                    error_message="Bitte Gruppennamen eingeben.",
-                    csrf_token=token,
-                )
-            join_code = generate_join_code(db_session)
-            group = create_group(
-                db_session, name=name, description=description, join_code=join_code, admin_id=user.id
-            )
-            create_membership(db_session, group_id=group.id, user_id=user.id, status="accepted")
-            db_session.commit()
-            return redirect(url_for("group_detail", group_id=group.id))
-
-        return render_template(
-            "group_new.html",
-            user=user,
-            theme=theme,
-            csrf_token=flask_session.get("csrf_token"),
-        )
-    finally:
-        db_session.close()
-
-
-@app.route("/groups/join", methods=["GET", "POST"])
-def join_group_view():
-    db_session = get_session()
-    try:
-        user = require_user(db_session)
-        if not user:
-            return redirect(url_for("landing", error="login_required"))
-        theme = get_theme(user)
-        ensure_csrf_token()
-        if request.method == "POST":
-            token = flask_session.get("csrf_token")
-            if not token or request.form.get("csrf_token") != token:
-                return redirect(url_for("join_group_view")), 403
-            join_code = (request.form.get("join_code") or "").strip()
-            group = get_group_by_code(db_session, join_code)
-            if not group:
-                return render_template(
-                    "group_join.html",
-                    user=user,
-                    theme=theme,
-                    error_message="Code wurde nicht gefunden.",
-                    csrf_token=token,
-                )
-            membership = get_membership(db_session, group.id, user.id)
-            if membership:
-                message = "Du bist bereits Mitglied." if membership.status == "accepted" else "Anfrage läuft bereits."
-                return render_template(
-                    "group_join.html",
-                    user=user,
-                    theme=theme,
-                    error_message=message if membership.status != "accepted" else None,
-                    success_message=message if membership.status == "accepted" else None,
-                    csrf_token=token,
-                )
-            create_membership(db_session, group_id=group.id, user_id=user.id, status="pending")
-            db_session.commit()
-            return render_template(
-                "group_join.html",
-                user=user,
-                theme=theme,
-                success_message="Anfrage gesendet. Warte auf Bestätigung.",
-                csrf_token=token,
-            )
-
-        return render_template(
-            "group_join.html",
-            user=user,
-            theme=theme,
-            csrf_token=flask_session.get("csrf_token"),
-        )
-    finally:
-        db_session.close()
-
-
-@app.route("/groups/<int:group_id>")
-def group_detail(group_id: int):
-    db_session = get_session()
-    try:
-        user = require_user(db_session)
-        if not user:
-            return redirect(url_for("landing", error="login_required"))
-        group = get_group_by_id(db_session, group_id)
-        if not group:
-            abort(404)
-        membership = get_membership(db_session, group_id, user.id)
-        allowed = membership_allows(group, membership, user)
-        theme = get_theme(user)
-        ensure_csrf_token()
-        members = list_group_members(db_session, group_id) if allowed else []
-        uploads = list_group_uploads(db_session, group_id) if allowed else []
-        requests_pending = list_pending_requests(db_session, group_id) if group.admin_id == user.id else []
-        return render_template(
-            "group_detail.html",
-            user=user,
-            theme=theme,
-            group=group,
-            membership=membership,
-            members=members,
-            uploads=uploads,
-            requests_pending=requests_pending,
-            datetime=datetime,
-            csrf_token=flask_session.get("csrf_token"),
-        )
-    finally:
-        db_session.close()
-
-
-@app.route("/groups/<int:group_id>/requests", methods=["POST"])
-def handle_group_request(group_id: int):
-    db_session = get_session()
-    try:
-        user = require_user(db_session)
-        if not user:
-            return redirect(url_for("landing", error="login_required"))
-        group = get_group_by_id(db_session, group_id)
-        if not group:
-            abort(404)
-        if group.admin_id != user.id and not user.is_admin:
-            return redirect(url_for("group_detail", group_id=group_id, error="unauthorized")), 403
-        token = flask_session.get("csrf_token")
-        if not token or request.form.get("csrf_token") != token:
-            return redirect(url_for("group_detail", group_id=group_id)), 403
-
-        membership_id = int(request.form.get("membership_id"))
-        action = request.form.get("action")
-        membership = db_session.query(GroupMembership).filter(GroupMembership.id == membership_id).one_or_none()
-        if not membership or membership.group_id != group_id:
-            return redirect(url_for("group_detail", group_id=group_id)), 404
-
-        if action == "accept":
-            update_membership_status(db_session, membership, "accepted")
-        elif action == "reject":
-            update_membership_status(db_session, membership, "rejected")
-        db_session.commit()
-        return redirect(url_for("group_detail", group_id=group_id))
-    finally:
-        db_session.close()
-
-
-@app.route("/groups/<int:group_id>/uploads", methods=["GET", "POST"])
-def group_uploads(group_id: int):
-    db_session = get_session()
-    try:
-        user = require_user(db_session)
-        if not user:
-            return redirect(url_for("landing", error="login_required"))
-        group = get_group_by_id(db_session, group_id)
-        if not group:
-            abort(404)
-        membership = get_membership(db_session, group_id, user.id)
-        if not membership_allows(group, membership, user):
-            return redirect(url_for("group_detail", group_id=group_id, error="unauthorized")), 403
-
-        ensure_csrf_token()
-        theme = get_theme(user)
-        uploads_list = list_group_uploads(db_session, group_id)
-
-        if request.method == "POST":
-            token = flask_session.get("csrf_token")
-            if not token or request.form.get("csrf_token") != token:
-                return redirect(url_for("group_uploads", group_id=group_id)), 403
-            files = request.files.getlist("files")
-            folder_label_input = request.form.get("folderName", "")
-            folder_label = sanitize_folder_label(folder_label_input)
-            if not files:
-                return render_template(
-                    "group_uploads.html",
-                    user=user,
-                    theme=theme,
-                    group=group,
-                    uploads=uploads_list,
-                    error_message="Keine Dateien erhalten.",
-                    csrf_token=token,
-                )
-            allowed, remaining = enforce_quota(db_session, user, len(files))
-            if not allowed:
-                msg = (
-                    "Freies Kontingent erschöpft (maximal "
-                    f"{FREE_DAILY_LIMIT} Uploads pro Tag, verbleibend: {remaining}). Upgrade auf Premium für unbegrenzte Uploads."
-                )
-                return render_template(
-                    "group_uploads.html",
-                    user=user,
-                    theme=theme,
-                    group=group,
-                    uploads=uploads_list,
-                    error_message=msg,
-                    csrf_token=token,
-                ), 403
-
-            size_ok, size_error = validate_size_and_capacity(db_session, user, files)
-            if not size_ok:
-                return render_template(
-                    "group_uploads.html",
-                    user=user,
-                    theme=theme,
-                    group=group,
-                    uploads=uploads_list,
-                    error_message=size_error,
-                    csrf_token=token,
-                ), 400
-
-            try:
-                for file_storage in files:
-                    uploaded = save_file(
-                        db_session,
-                        file_storage,
-                        folder_label,
-                        request.remote_addr,
-                        user_id=user.id,
-                        username=sanitize_username(user.username) or f"user-{user.id}",
-                    )
-                    if uploaded:
-                        add_group_upload(
-                            db_session, group_id=group.id, upload_id=uploaded.id, uploader_id=user.id
-                        )
-                db_session.commit()
-            except Exception:  # noqa: BLE001
-                db_session.rollback()
-                return render_template(
-                    "group_uploads.html",
-                    user=user,
-                    theme=theme,
-                    group=group,
-                    uploads=uploads_list,
-                    error_message="Speichern fehlgeschlagen.",
-                    csrf_token=flask_session.get("csrf_token"),
-                ), 500
-            return redirect(url_for("group_detail", group_id=group.id))
-
-        return render_template(
-            "group_uploads.html",
-            user=user,
-            theme=theme,
-            group=group,
-            uploads=uploads_list,
-            csrf_token=flask_session.get("csrf_token"),
-        )
-    finally:
-        db_session.close()
-
-@app.route("/download/<int:upload_id>")
-def download(upload_id: int):
-    db_session = get_session()
-    try:
-        user = require_user(db_session)
-        if not user:
-            return redirect(url_for("landing", error="login_required"))
-
-        upload_obj = fetch_upload(db_session, upload_id)
-        if not upload_obj:
-            abort(404)
-        allowed = False
-        if upload_obj.user_id == user.id or user.is_admin:
-            allowed = True
-        else:
-            share_obj = share_for_user_and_upload(db_session, user.id, upload_id)
-            if share_obj:
-                allowed = True
-            else:
-                link = group_link_for_upload(db_session, upload_id)
-                if link:
-                    membership = get_membership(db_session, link.group_id, user.id)
-                    if membership_allows(link.group, membership, user):
-                        allowed = True
-        if not allowed:
-            return redirect(url_for("my_uploads", error="unauthorized")), 403
-    finally:
-        db_session.close()
-
-    file_path = STORAGE_ROOT / upload_obj.server_path
-    if not file_path.exists():
-        abort(404)
-
-    return send_file(file_path, as_attachment=True, download_name=Path(upload_obj.original_filename).name)
-
-
-@app.route("/delete/<int:upload_id>", methods=["POST"])
-def delete_upload(upload_id: int):
-    db_session = get_session()
-    try:
-        user = require_user(db_session)
-        if not user:
-            return redirect(url_for("landing", error="login_required"))
-
-        token = flask_session.get("csrf_token")
-        if not token or request.form.get("csrf_token") != token:
-            return redirect(url_for("my_uploads", error="unauthorized")), 403
-
-        upload_obj = fetch_upload(db_session, upload_id)
-        if not upload_obj:
-            abort(404)
-        allowed = upload_obj.user_id == user.id or user.is_admin
-        if not allowed:
-            link = group_link_for_upload(db_session, upload_id)
-            if link and link.group.admin_id == user.id:
-                allowed = True
-        if not allowed:
-            return redirect(url_for("my_uploads", error="unauthorized")), 403
-
-        file_path = STORAGE_ROOT / upload_obj.server_path
-        if file_path.exists():
-            try:
-                file_path.unlink()
-            except OSError:
-                pass
-        db_session.delete(upload_obj)
-        db_session.commit()
-    finally:
-        db_session.close()
-
-    return redirect(url_for("my_uploads", success="deleted"))
-
-
-@app.route("/admin/uploads")
-def admin_uploads():
-    db_session = get_session()
-    try:
-        user = require_user(db_session)
-        if not user:
-            return redirect(url_for("admin_login", error="login_required"))
-        if not user.is_admin:
-            return redirect(url_for("app_home", error="unauthorized")), 403
-
-        uploads = fetch_uploads_desc(db_session)
-        theme = get_theme(user)
-    finally:
-        db_session.close()
-    return render_template("admin_uploads.html", uploads=uploads, theme=theme)
-
-
-@app.route("/admin/uploads/<int:upload_id>")
-def admin_upload_detail(upload_id: int):
-    db_session = get_session()
-    try:
-        user = require_user(db_session)
-        if not user:
-            return redirect(url_for("admin_login", error="login_required"))
-        if not user.is_admin:
-            return redirect(url_for("app_home", error="unauthorized")), 403
-
-        upload_obj = fetch_upload(db_session, upload_id)
-        if not upload_obj:
-            abort(404)
-        theme = get_theme(user)
-    finally:
-        db_session.close()
-    return render_template("admin_upload_detail.html", upload=upload_obj, theme=theme)
-
-
-@app.route("/admin")
-def admin_panel():
-    db_session = get_session()
-    try:
-        user = require_user(db_session)
-        if not user:
-            return redirect(url_for("admin_login", error="login_required"))
-        if not user.is_admin:
-            return redirect(url_for("app_home", error="unauthorized")), 403
-
-        total_uploads = len(fetch_uploads_desc(db_session))
-        total_users = db_session.query(User).count()
-        theme = get_theme(user)
-    finally:
-        db_session.close()
-
+    breadcrumbs = rel_path.split("/") if rel_path else []
     return render_template(
-        "admin_panel.html",
-        total_uploads=total_uploads,
-        total_users=total_users,
-        theme=theme,
+        "files.html",
+        files=files,
+        rel_path=rel_path,
+        breadcrumbs=breadcrumbs,
+        subfolders=subfolders,
+        search=search or "",
+        favorites_only=favorites_only,
+        type_filter=type_filter or "",
+        date_filter=date_filter or "",
+        sort=sort or "",
+        page=page,
+        total=total,
+        per_page=per_page,
+        human_size=human_size,
     )
 
 
-@app.errorhandler(413)
-def handle_large_request(_err):
-    db_session = get_session()
-    try:
-        user = get_current_user(db_session)
-        message = f"Upload überschreitet das Limit von {MAX_UPLOAD_MB} MB pro Anfrage. Bitte kleinere Dateien wählen."
-        if user:
-            return render_workspace(db_session, user, error_message=message), 413
-    finally:
-        db_session.close()
+# ---------------------------------------------------------------------------
+# upload & file actions
+# ---------------------------------------------------------------------------
+@app.route("/upload", methods=["GET", "POST"])
+@login_required
+def upload():
+    if request.method == "GET":
+        rel_path = sanitize_rel_path(request.args.get("path"))
+        return render_template("upload.html", rel_path=rel_path)
 
-    return render_landing_page(error_message=message), 413
+    rel_path = sanitize_rel_path(request.form.get("path"))
+    files: List[FileStorage] = request.files.getlist("files")
+    if not files:
+        flash("Keine Dateien ausgewählt.", "error")
+        return redirect(url_for("upload", path=rel_path))
+
+    user_root = ensure_user_root(current_user.username)
+    try:
+        target_dir = safe_join_user_path(current_user.username, rel_path)
+    except ValueError:
+        abort(400)
+    target_dir.mkdir(parents=True, exist_ok=True)
+
+    with current_session() as session:
+        for storage in files:
+            filename = secure_filename(storage.filename or "")
+            if not filename:
+                continue
+            dest = target_dir / filename
+            storage.save(dest)
+            size = dest.stat().st_size
+            mime_type = storage.mimetype or mimetypes.guess_type(filename)[0]
+            add_file(
+                session,
+                user_id=current_user.id,
+                rel_path=rel_path,
+                filename=filename,
+                size_bytes=size,
+                mime_type=mime_type,
+            )
+        session.commit()
+    flash("Upload abgeschlossen.", "success")
+    return redirect(url_for("files_view", path=rel_path))
+
+
+@app.route("/download/<int:file_id>")
+@login_required
+def download(file_id: int):
+    with current_session() as session:
+        file = get_file(session, file_id)
+        if not file or file.user_id != current_user.id:
+            abort(404)
+        try:
+            path = safe_join_user_path(current_user.username, file.rel_path, file.filename)
+        except ValueError:
+            abort(400)
+        if not path.exists():
+            abort(404)
+        return send_file(path, as_attachment=True, download_name=file.filename)
+
+
+@app.route("/preview/<int:file_id>")
+@login_required
+def preview(file_id: int):
+    with current_session() as session:
+        file = get_file(session, file_id)
+        if not file or file.user_id != current_user.id:
+            abort(404)
+        try:
+            path = safe_join_user_path(current_user.username, file.rel_path, file.filename)
+        except ValueError:
+            abort(400)
+        if not path.exists():
+            abort(404)
+        mime = file.mime_type or mimetypes.guess_type(file.filename)[0]
+        return send_file(path, mimetype=mime or "application/octet-stream", as_attachment=False)
+
+
+@app.route("/delete/<int:file_id>", methods=["POST"])
+@login_required
+def delete(file_id: int):
+    with current_session() as session:
+        file = get_file(session, file_id)
+        if not file or file.user_id != current_user.id:
+            abort(404)
+        try:
+            path = safe_join_user_path(current_user.username, file.rel_path, file.filename)
+        except ValueError:
+            abort(400)
+        if path.exists():
+            path.unlink()
+        session.delete(file)
+        session.commit()
+    flash("Datei gelöscht.", "success")
+    return redirect(url_for("files_view", path=request.form.get("return_path", "")))
+
+
+@app.route("/favorite/<int:file_id>", methods=["POST"])
+@login_required
+def favorite(file_id: int):
+    with current_session() as session:
+        file = get_file(session, file_id)
+        if not file or file.user_id != current_user.id:
+            abort(404)
+        toggle_favorite(session, file)
+        session.commit()
+        status = "favorisiert" if file.is_favorite else "entfernt"
+        flash(f"Favorit {status}.", "success")
+    return redirect(request.referrer or url_for("files_view"))
+
+
+@app.route("/bulk/delete", methods=["POST"])
+@login_required
+def bulk_delete():
+    ids = request.form.getlist("file_ids")
+    if not ids:
+        flash("Keine Dateien ausgewählt.", "error")
+        return redirect(request.referrer or url_for("files_view"))
+    with current_session() as session:
+        for raw_id in ids:
+            file = get_file(session, int(raw_id))
+            if file and file.user_id == current_user.id:
+                try:
+                    path = safe_join_user_path(current_user.username, file.rel_path, file.filename)
+                except ValueError:
+                    continue
+                if path.exists():
+                    path.unlink()
+                session.delete(file)
+        session.commit()
+    flash("Dateien gelöscht.", "success")
+    return redirect(request.referrer or url_for("files_view"))
+
+
+@app.route("/bulk/download", methods=["POST"])
+@login_required
+def bulk_download():
+    ids = request.form.getlist("file_ids")
+    if not ids:
+        flash("Keine Dateien ausgewählt.", "error")
+        return redirect(request.referrer or url_for("files_view"))
+    mem = io.BytesIO()
+    with zipfile.ZipFile(mem, "w", zipfile.ZIP_DEFLATED) as zf:
+        with current_session() as session:
+            for raw_id in ids:
+                file = get_file(session, int(raw_id))
+                if not file or file.user_id != current_user.id:
+                    continue
+                try:
+                    path = safe_join_user_path(current_user.username, file.rel_path, file.filename)
+                except ValueError:
+                    continue
+                if path.exists():
+                    arcname = f"{file.rel_path}/{file.filename}" if file.rel_path else file.filename
+                    zf.write(path, arcname=arcname)
+    mem.seek(0)
+    return send_file(mem, mimetype="application/zip", as_attachment=True, download_name="export.zip")
+
+
+@app.route("/bulk/move", methods=["POST"])
+@login_required
+def bulk_move():
+    ids = request.form.getlist("file_ids")
+    target = sanitize_rel_path(request.form.get("target") or "")
+    if target == "..":
+        target = ""
+    if target is None:
+        target = ""
+    if not ids:
+        flash("Keine Dateien ausgewählt.", "error")
+        return redirect(request.referrer or url_for("files_view"))
+    try:
+        target_dir = safe_join_user_path(current_user.username, target)
+    except ValueError:
+        abort(400)
+    target_dir.mkdir(parents=True, exist_ok=True)
+    with current_session() as session:
+        for raw_id in ids:
+            file = get_file(session, int(raw_id))
+            if not file or file.user_id != current_user.id:
+                continue
+            try:
+                src = safe_join_user_path(current_user.username, file.rel_path, file.filename)
+            except ValueError:
+                continue
+            dest = target_dir / file.filename
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            if src.exists():
+                src.replace(dest)
+            file.rel_path = target
+        session.commit()
+    flash("Dateien verschoben.", "success")
+    return redirect(url_for("files_view", path=target))
+
+
+# ---------------------------------------------------------------------------
+# folder management
+# ---------------------------------------------------------------------------
+@app.route("/folders/create", methods=["POST"])
+@login_required
+def create_folder():
+    base_path = sanitize_rel_path(request.form.get("path"))
+    name_raw = request.form.get("name") or ""
+    name = sanitize_rel_path(name_raw)
+    if not name:
+        flash("Ordnername ungültig.", "error")
+        return redirect(request.referrer or url_for("files_view"))
+    try:
+        target = safe_join_user_path(current_user.username, base_path, name)
+    except ValueError:
+        abort(400)
+    target.mkdir(parents=True, exist_ok=True)
+    flash("Ordner erstellt.", "success")
+    new_rel = "/".join([p for p in [base_path, name] if p])
+    return redirect(url_for("files_view", path=new_rel))
+
+
+@app.route("/folders/delete", methods=["POST"])
+@login_required
+def delete_folder():
+    rel_path = sanitize_rel_path(request.form.get("path"))
+    if not rel_path:
+        flash("Kein Ordner gewählt.", "error")
+        return redirect(request.referrer or url_for("files_view"))
+    try:
+        target = safe_join_user_path(current_user.username, rel_path)
+    except ValueError:
+        abort(400)
+    if any(target.iterdir()):
+        flash("Ordner ist nicht leer.", "error")
+        return redirect(request.referrer or url_for("files_view"))
+    target.rmdir()
+    flash("Ordner gelöscht.", "success")
+    parent = "/".join(rel_path.split("/")[:-1])
+    return redirect(url_for("files_view", path=parent))
+
+
+@app.route("/folders/rename", methods=["POST"])
+@login_required
+def rename_folder():
+    rel_path = sanitize_rel_path(request.form.get("path"))
+    new_name = sanitize_rel_path(request.form.get("name"))
+    if not rel_path or not new_name:
+        flash("Ungültige Angaben.", "error")
+        return redirect(request.referrer or url_for("files_view"))
+    try:
+        src = safe_join_user_path(current_user.username, rel_path)
+    except ValueError:
+        abort(400)
+    if any(src.iterdir()):
+        flash("Nur leere Ordner können umbenannt werden.", "error")
+        return redirect(request.referrer or url_for("files_view"))
+    parent = src.parent
+    dest = parent / new_name
+    src.rename(dest)
+    parent_rel = "/".join(rel_path.split("/")[:-1])
+    updated_rel = "/".join([p for p in [parent_rel, new_name] if p])
+    flash("Ordner umbenannt.", "success")
+    return redirect(url_for("files_view", path=updated_rel))
+
+
+# ---------------------------------------------------------------------------
+# utils
+# ---------------------------------------------------------------------------
+
+def valid_password(password: str) -> bool:
+    if len(password) < 8:
+        return False
+    if not re.search(r"[A-Z]", password):
+        return False
+    if not re.search(r"[a-z]", password):
+        return False
+    if not re.search(r"[0-9]", password):
+        return False
+    return True
+
+
+# ---------------------------------------------------------------------------
+# init
+# ---------------------------------------------------------------------------
 
 
 init_db()
 
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=5000, debug=True)
+    app.run(host="0.0.0.0", port=5000, debug=False)
