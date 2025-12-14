@@ -1,9 +1,12 @@
 import os
+import re
 import secrets
+import smtplib
 import string
 from datetime import date, datetime, timedelta
 from pathlib import Path
 
+from email.message import EmailMessage
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -27,6 +30,7 @@ from models import (  # noqa: E402
     Group,
     GroupMembership,
     GroupUpload,
+    EmailVerification,
     Share,
     User,
     add_group_upload,
@@ -59,9 +63,13 @@ from models import (  # noqa: E402
     reset_daily_counter_if_needed,
     update_membership_status,
     user_storage_usage,
+    get_verification,
+    upsert_email_verification,
 )
 
 BASE_DIR = Path(__file__).resolve().parent
+STORAGE_ROOT = Path(os.environ.get("UPLOAD_ROOT", "/opt/htl-upload/uploads"))
+STORAGE_ROOT.mkdir(parents=True, exist_ok=True)
 
 app = Flask(__name__)
 app.config["SECRET_KEY"] = os.environ.get("SECRET_KEY", "dev-secret-key")
@@ -122,6 +130,36 @@ def ensure_csrf_token() -> str:
         token = secrets.token_hex(16)
         flask_session["csrf_token"] = token
     return token
+
+
+def generate_verification_code() -> str:
+    return f"{secrets.randbelow(1_000_000):06d}"
+
+
+def send_verification_email(recipient: str, code: str) -> None:
+    host = os.environ.get("SMTP_HOST")
+    port = int(os.environ.get("SMTP_PORT", "587"))
+    user = os.environ.get("SMTP_USER")
+    password = os.environ.get("SMTP_PASS")
+    use_tls = os.environ.get("SMTP_TLS", "true").lower() == "true"
+    sender = os.environ.get("MAIL_FROM", user)
+
+    if not host or not user or not password or not sender:
+        raise RuntimeError("SMTP-Konfiguration fehlt")
+
+    message = EmailMessage()
+    message["Subject"] = "Dein HTL Upload Verifikationscode"
+    message["From"] = sender
+    message["To"] = recipient
+    message.set_content(
+        f"Hallo,\n\nDein Verifikationscode lautet: {code}\nDer Code ist 10 Minuten gültig.\n\nHTL Upload"
+    )
+
+    with smtplib.SMTP(host, port) as server:
+        if use_tls:
+            server.starttls()
+        server.login(user, password)
+        server.send_message(message)
 
 
 def generate_join_code(db_session) -> str:
@@ -216,6 +254,29 @@ def sanitize_relative_path(path: str) -> Path:
     return Path(*cleaned_parts)
 
 
+USERNAME_PATTERN = re.compile(r"^[a-z0-9_-]{3,20}$")
+
+
+def sanitize_username(username: str) -> str | None:
+    candidate = username.strip().lower()
+    if USERNAME_PATTERN.match(candidate):
+        return candidate
+    return None
+
+
+def validate_email(email: str) -> bool:
+    return bool(re.match(r"^[^@\s]+@[^@\s]+\.[^@\s]+$", email.strip()))
+
+
+def validate_password(pwd: str) -> bool:
+    if len(pwd) < 8:
+        return False
+    has_upper = any(ch.isupper() for ch in pwd)
+    has_lower = any(ch.islower() for ch in pwd)
+    has_digit = any(ch.isdigit() for ch in pwd)
+    return has_upper and has_lower and has_digit
+
+
 def sanitize_folder_label(label: str) -> str:
     cleaned = "".join(ch for ch in label if ch.isalnum() or ch in {" ", "_", "-"}).strip()
     return cleaned or "Ordner"
@@ -225,11 +286,13 @@ def ensure_upload_dir(path: Path) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
 
 
-def build_storage_paths(folder_label: str, relative: Path, *, user_id: int) -> tuple[Path, Path]:
+def build_storage_paths(folder_label: str, relative: Path, *, username: str) -> tuple[Path, Path, Path]:
     today = datetime.utcnow()
-    relative_server = Path("uploads") / str(user_id) / f"{today:%Y}" / f"{today:%m}" / folder_label / relative
-    destination = BASE_DIR / relative_server
-    return destination, relative_server
+    base = Path(username) / f"{today:%Y}" / f"{today:%m}" / folder_label
+    relative_server = base / relative
+    destination = STORAGE_ROOT / relative_server
+    rel_for_user = Path(folder_label) / relative if folder_label else relative
+    return destination, relative_server, rel_for_user
 
 
 def save_file(
@@ -239,12 +302,15 @@ def save_file(
     uploader_ip: str | None,
     *,
     user_id: int,
+    username: str,
 ):
     relative = sanitize_relative_path(file_storage.filename)
     if not relative.parts:
         return None
 
-    destination, server_relative = build_storage_paths(folder_label, relative, user_id=user_id)
+    destination, server_relative, rel_for_user = build_storage_paths(
+        folder_label, relative, username=username
+    )
     ensure_upload_dir(destination)
     file_storage.save(destination)
 
@@ -255,6 +321,7 @@ def save_file(
         user_id=user_id,
         original_filename=str(relative),
         server_path=str(server_relative),
+        rel_path=str(rel_for_user),
         size_bytes=size,
         content_type=content_type,
         uploader_ip=uploader_ip,
@@ -404,15 +471,22 @@ def app_home():
 @app.route("/register", methods=["POST"])
 def register():
     email = (request.form.get("email") or "").strip()
-    username = (request.form.get("username") or "").strip()
+    username_raw = (request.form.get("username") or "").strip()
     password = request.form.get("password") or ""
     confirm = request.form.get("password_confirm") or ""
     plan = (request.form.get("plan") or "free").strip().lower()
     if plan not in {"free", "premium"}:
         plan = "free"
 
+    username = sanitize_username(username_raw)
     if not email or not username or not password:
-        return render_landing_page(error_message="Bitte E-Mail, Username und Passwort ausfüllen.")
+        return render_landing_page(error_message="Bitte gültige E-Mail, Username und Passwort ausfüllen.")
+    if not validate_email(email):
+        return render_landing_page(error_message="E-Mail ist ungültig.")
+    if not validate_password(password):
+        return render_landing_page(
+            error_message="Passwort zu schwach (min. 8 Zeichen, 1 Groß-, 1 Kleinbuchstabe, 1 Zahl)."
+        )
     if password != confirm:
         return render_landing_page(error_message="Passwörter stimmen nicht überein.")
 
@@ -431,8 +505,21 @@ def register():
             password_hash=password_hash,
             plan=plan,
         )
+        code = generate_verification_code()
+        now = datetime.utcnow()
+        upsert_email_verification(
+            db_session,
+            user_id=user.id,
+            code_hash=generate_password_hash(code),
+            expires_at=now + timedelta(minutes=10),
+            sent_at=now,
+        )
         db_session.commit()
-        flask_session["user_id"] = user.id
+        try:
+            send_verification_email(email, code)
+        except Exception:
+            pass
+        flask_session["pending_verification_user_id"] = user.id
         flask_session.permanent = True
     except Exception:  # noqa: BLE001
         db_session.rollback()
@@ -440,7 +527,7 @@ def register():
     finally:
         db_session.close()
 
-    return redirect(url_for("app_home", success="registered"))
+    return redirect(url_for("verify_email"))
 
 
 @app.route("/login", methods=["POST"])
@@ -456,12 +543,86 @@ def login():
         user = get_user_by_email(db_session, email)
         if not user or not check_password_hash(user.password_hash, password):
             return render_landing_page(error_message="Login fehlgeschlagen. Bitte E-Mail und Passwort prüfen.")
+        if not user.email_verified:
+            flask_session["pending_verification_user_id"] = user.id
+            return redirect(url_for("verify_email", error="verification_required"))
         flask_session["user_id"] = user.id
         flask_session.permanent = True
     finally:
         db_session.close()
 
     return redirect(url_for("app_home", success="logged_in"))
+
+
+@app.route("/verify-email", methods=["GET", "POST"])
+def verify_email():
+    user_id = flask_session.get("pending_verification_user_id")
+    db_session = get_session()
+    try:
+        user = get_user_by_id(db_session, user_id) if user_id else None
+        if not user:
+            return redirect(url_for("landing", error="login_required"))
+
+        record = get_verification(db_session, user.id)
+        message = None
+        error = None
+        cooldown_seconds = 0
+        now = datetime.utcnow()
+        if record and record.last_sent_at:
+            elapsed = (now - record.last_sent_at).total_seconds()
+            cooldown_seconds = max(0, 60 - int(elapsed))
+
+        if request.method == "POST":
+            action = request.form.get("action")
+            if action == "resend":
+                if cooldown_seconds > 0:
+                    error = f"Bitte warte {cooldown_seconds} Sekunden, bevor du erneut sendest."
+                else:
+                    code = generate_verification_code()
+                    upsert_email_verification(
+                        db_session,
+                        user_id=user.id,
+                        code_hash=generate_password_hash(code),
+                        expires_at=now + timedelta(minutes=10),
+                        sent_at=now,
+                    )
+                    db_session.commit()
+                    try:
+                        send_verification_email(user.email, code)
+                        message = "Neuer Code gesendet."
+                    except Exception:
+                        error = "Code konnte nicht gesendet werden (SMTP prüfen)."
+            else:
+                code = (request.form.get("code") or "").strip()
+                if not record:
+                    error = "Kein Code gefunden. Bitte erneut senden."
+                elif record.attempts >= 5:
+                    error = "Zu viele Versuche. Bitte Code erneut senden."
+                elif record.expires_at < now:
+                    error = "Code abgelaufen. Bitte erneut senden."
+                elif not check_password_hash(record.code_hash, code):
+                    record.attempts += 1
+                    db_session.commit()
+                    error = "Code ungültig."
+                else:
+                    user.email_verified = True
+                    record.attempts = 0
+                    db_session.commit()
+                    flask_session.pop("pending_verification_user_id", None)
+                    return redirect(url_for("landing", success="logged_in"))
+
+        theme = get_theme(None)
+        return render_template(
+            "verify_email.html",
+            user=user,
+            theme=theme,
+            success_message=message,
+            error_message=error,
+            cooldown=cooldown_seconds,
+            csrf_token=ensure_csrf_token(),
+        )
+    finally:
+        db_session.close()
 
 
 @app.route("/admin/login", methods=["GET", "POST"])
@@ -568,6 +729,7 @@ def upload():
             return render_workspace(db_session, user, error_message=size_error), 400
 
         saved = 0
+        safe_username = sanitize_username(user.username) or f"user-{user.id}"
         for file_storage in files:
             uploaded = save_file(
                 db_session,
@@ -575,6 +737,7 @@ def upload():
                 folder_label,
                 request.remote_addr,
                 user_id=user.id,
+                username=safe_username,
             )
             if uploaded:
                 saved += 1
@@ -631,7 +794,14 @@ def upload_namensliste():
             return render_workspace(db_session, user, error_message=size_error), 400
 
         file_storage.stream.seek(0)
-        uploaded = save_file(db_session, file_storage, folder_label, request.remote_addr, user_id=user.id)
+        uploaded = save_file(
+            db_session,
+            file_storage,
+            folder_label,
+            request.remote_addr,
+            user_id=user.id,
+            username=sanitize_username(user.username) or f"user-{user.id}",
+        )
         if not uploaded:
             db_session.rollback()
             return render_workspace(db_session, user, error_message="Es konnte nichts gespeichert werden."), 400
@@ -647,6 +817,7 @@ def upload_namensliste():
 
 
 @app.route("/my/uploads")
+@app.route("/files")
 def my_uploads():
     db_session = get_session()
     try:
@@ -660,6 +831,12 @@ def my_uploads():
             sort = "date_desc"
 
         uploads = fetch_user_uploads(db_session, user.id, sort=sort)
+        for item in uploads:
+            if not item.rel_path:
+                try:
+                    item.rel_path = str(Path(item.server_path).relative_to(Path(item.server_path).parts[0]))
+                except Exception:
+                    item.rel_path = item.original_filename
         theme = get_theme(user)
         ensure_csrf_token()
         success_message = success_text_from_query(request.args.get("success"))
@@ -1075,6 +1252,7 @@ def group_uploads(group_id: int):
                         folder_label,
                         request.remote_addr,
                         user_id=user.id,
+                        username=sanitize_username(user.username) or f"user-{user.id}",
                     )
                     if uploaded:
                         add_group_upload(
@@ -1134,7 +1312,7 @@ def download(upload_id: int):
     finally:
         db_session.close()
 
-    file_path = BASE_DIR / upload_obj.server_path
+    file_path = STORAGE_ROOT / upload_obj.server_path
     if not file_path.exists():
         abort(404)
 
@@ -1164,7 +1342,7 @@ def delete_upload(upload_id: int):
         if not allowed:
             return redirect(url_for("my_uploads", error="unauthorized")), 403
 
-        file_path = BASE_DIR / upload_obj.server_path
+        file_path = STORAGE_ROOT / upload_obj.server_path
         if file_path.exists():
             try:
                 file_path.unlink()

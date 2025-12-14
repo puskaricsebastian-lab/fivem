@@ -2,6 +2,11 @@
 
 Elegante Weboberfläche zum Hochladen kompletter Ordner. Fürs Ausprobieren läuft alles direkt lokal mit einer integrierten SQLite-Datei; eine zentrale Online-Datenbank (z. B. PostgreSQL) kannst du später per `DATABASE_URL` anbinden.
 
+**Neu:**
+- Registrierung mit Username + E-Mail, Passwort-Regeln (min. 8 Zeichen, 1 Groß-/Kleinbuchstabe, 1 Zahl)
+- E-Mail-Verifikation über 6-stelligen Code (10 Minuten gültig, 5 Versuche, Resend alle 60 s)
+- Uploads werden unter `/opt/htl-upload/uploads/<username>/…` abgelegt; im UI werden nur kurze relative Pfade angezeigt.
+
 ## Features
 - Login-Pflicht mit Benutzerkonten (E-Mail + Username + Passwort, gehasht gespeichert) und Plänen Free/Premium/Trial; E-Mail und Username sind eindeutig.
 - Upload kompletter Ordner (inklusive Unterordner) per Browser (`webkitdirectory`) – jedem Upload wird der aktuelle Benutzer zugeordnet; Drag & Drop mit Fortschrittsbalken ist aktiv.

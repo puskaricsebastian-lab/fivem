@@ -11,6 +11,7 @@ from sqlalchemy import (
     ForeignKey,
     Integer,
     String,
+    UniqueConstraint,
     create_engine,
     func,
     inspect,
@@ -34,6 +35,7 @@ class Upload(Base):
     user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     original_filename = Column(String(255), nullable=False)
     server_path = Column(String(1024), nullable=False)
+    rel_path = Column(String(1024), nullable=True)
     size_bytes = Column(Integer, nullable=False)
     content_type = Column(String(255), nullable=False)
     upload_timestamp = Column(DateTime, default=datetime.utcnow, nullable=False)
@@ -70,6 +72,7 @@ class User(Base):
     trial_expires_at = Column(DateTime, nullable=True)
     theme = Column(String(20), default="dark", nullable=False)
     is_admin = Column(Boolean, default=False, nullable=False)
+    email_verified = Column(Boolean, default=False, nullable=False)
 
     uploads = relationship("Upload", back_populates="uploader")
     shares_created = relationship("Share", back_populates="owner", foreign_keys="Share.owner_id")
@@ -135,6 +138,18 @@ class GroupUpload(Base):
     uploader = relationship("User")
 
 
+class EmailVerification(Base):
+    __tablename__ = "email_verifications"
+    __table_args__ = (UniqueConstraint("user_id", name="uq_verification_user"),)
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    code_hash = Column(String(255), nullable=False)
+    expires_at = Column(DateTime, nullable=False)
+    attempts = Column(Integer, default=0, nullable=False)
+    last_sent_at = Column(DateTime, nullable=True)
+
+
 def _ensure_username_column():
     inspector = inspect(engine)
     columns = {col["name"] for col in inspector.get_columns("users")}
@@ -150,9 +165,36 @@ def _ensure_username_column():
         session.commit()
 
 
+def _ensure_email_verified_column():
+    inspector = inspect(engine)
+    columns = {col["name"] for col in inspector.get_columns("users")}
+    if "email_verified" in columns:
+        return
+
+    with engine.begin() as conn:
+        conn.execute(text("ALTER TABLE users ADD COLUMN email_verified BOOLEAN DEFAULT 0"))
+
+
+def _ensure_rel_path_column():
+    inspector = inspect(engine)
+    columns = {col["name"] for col in inspector.get_columns("uploads")}
+    if "rel_path" in columns:
+        return
+
+    with engine.begin() as conn:
+        conn.execute(text("ALTER TABLE uploads ADD COLUMN rel_path VARCHAR(1024)"))
+
+    with SessionLocal() as session:
+        for upload in session.query(Upload).all():
+            upload.rel_path = upload.server_path
+        session.commit()
+
+
 def init_db() -> None:
     Base.metadata.create_all(engine)
     _ensure_username_column()
+    _ensure_email_verified_column()
+    _ensure_rel_path_column()
 
 
 def get_session() -> Session:
@@ -415,4 +457,42 @@ def list_group_uploads(session: Session, group_id: int) -> List[GroupUpload]:
         .filter(GroupUpload.group_id == group_id)
         .order_by(GroupUpload.created_at.desc())
         .all()
+    )
+
+
+def upsert_email_verification(
+    session: Session,
+    *,
+    user_id: int,
+    code_hash: str,
+    expires_at: datetime,
+    sent_at: datetime,
+) -> None:
+    existing = (
+        session.query(EmailVerification)
+        .filter(EmailVerification.user_id == user_id)
+        .one_or_none()
+    )
+    if existing:
+        existing.code_hash = code_hash
+        existing.expires_at = expires_at
+        existing.attempts = 0
+        existing.last_sent_at = sent_at
+    else:
+        session.add(
+            EmailVerification(
+                user_id=user_id,
+                code_hash=code_hash,
+                expires_at=expires_at,
+                attempts=0,
+                last_sent_at=sent_at,
+            )
+        )
+
+
+def get_verification(session: Session, user_id: int) -> EmailVerification | None:
+    return (
+        session.query(EmailVerification)
+        .filter(EmailVerification.user_id == user_id)
+        .one_or_none()
     )
