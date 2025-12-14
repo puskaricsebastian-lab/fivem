@@ -51,6 +51,7 @@ a:hover { color: var(--primary-strong); }
 .section h2 { margin: 0; }
 
 .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 16px; }
+.grid.two { grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); }
 .card { background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); padding: 18px; box-shadow: var(--shadow); }
 .card__header { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 12px; }
 
@@ -105,6 +106,14 @@ tr:hover { background: rgba(255,255,255,0.02); }
 .filters { margin: 12px 0; }
 .filters__form { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 10px; }
 .checkbox { display: inline-flex; gap: 8px; align-items: center; }
+
+.pill { display: inline-block; padding: 4px 10px; background: rgba(255,255,255,0.05); border: 1px solid var(--border); border-radius: 999px; font-size: 0.85rem; color: var(--muted); }
+.list { list-style: none; padding: 0; margin: 0; display: grid; gap: 10px; }
+.stack { display: flex; flex-direction: column; }
+.gap { gap: 12px; }
+.narrow { max-width: 720px; margin: 0 auto; }
+.actions.end { justify-content: flex-end; display: flex; gap: 8px; }
+.top-gap { margin-top: 16px; }
 
 .file-layout { display: grid; grid-template-columns: 220px 1fr; gap: 16px; align-items: start; }
 .side { background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); padding: 12px; box-shadow: var(--shadow); }

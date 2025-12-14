@@ -7,6 +7,8 @@ Saubere Flask-Webapp zum Registrieren, Anmelden und Verwalten eigener Dateien/Or
 - Dashboard mit Quick-Upload (Drag & Drop + Progress) und Liste der letzten Dateien.
 - „Meine Dateien“ mit Suche, Sortierung (Name/Datum/Größe), Typ-/Datumsfilter, Favoriten, Mehrfachauswahl (Löschen, Download als ZIP, Verschieben), Inline-Favoriten und Vorschau (Bilder/PDF inline, sonst Download).
 - Ordner-Verwaltung: anlegen, umbenennen (wenn leer) und löschen (wenn leer), Breadcrumbs + Unterordner-Navigation.
+- Shares: Dateien gezielt mit einem anderen Benutzer teilen, Freigaben verwalten, „Mit mir geteilt“ einsehen.
+- Gruppen: Gruppen erstellen, Join-Code teilen, Beitritte genehmigen und gemeinsame Uploads für Mitglieder bereitstellen.
 - Uploads optional in einen ausgewählten Unterordner; nie absolute Pfade oder Traversal.
 - Storage strikt pro Benutzer unter `/opt/htl-upload/uploads/<username>/…`; Dateidatenbank mit `files` (rel_path, filename, size, mime, favorite).
 
@@ -31,7 +33,8 @@ Saubere Flask-Webapp zum Registrieren, Anmelden und Verwalten eigener Dateien/Or
 5. **Nutzung**
    - Auf `/` erscheint ein kompaktes Auth-Panel. Registrieren (E-Mail, Username, Passwort+Wiederholung) oder einloggen.
    - Dashboard: Quick Upload mit Drag & Drop und Fortschrittsbalken.
-   - Dateien: Navigation über Breadcrumbs/Unterordner, Suche/Filter, Favoriten, Bulk-Aktionen, Vorschau/Download/Löschen, Ordner anlegen/umbenennen/löschen (nur leer), Bulk-Move mit Zielordner.
+   - Dateien: Navigation über Breadcrumbs/Unterordner, Suche/Filter, Favoriten, Bulk-Aktionen, Vorschau/Download/Löschen, Ordner anlegen/umbenennen/löschen (nur leer), Bulk-Move mit Zielordner, gezielte Freigaben.
+   - Shares/Gruppen: unter „Shares“ Freigaben anlegen/sehen, „Mit mir geteilt“ prüfen; unter „Gruppen“ Gruppen anlegen, Join-Code teilen/beitreten und Gruppen-Uploads nutzen.
 
 ## Deployment auf Ubuntu 22.04 (htl-upload.service)
 1. **Code bereitstellen**: z. B. unter `/opt/htl-upload` ablegen.
@@ -62,7 +65,7 @@ Saubere Flask-Webapp zum Registrieren, Anmelden und Verwalten eigener Dateien/Or
 
 ## Datenbank
 - Standard: SQLite (`database.db`) im Projektverzeichnis.
-- Optional: `DATABASE_URL` (z. B. PostgreSQL). Tabellen `users` und `files` werden beim Start erstellt. Legacy-Tabellen für Trials/Verifikation/Groups/Shares werden entfernt.
+- Optional: `DATABASE_URL` (z. B. PostgreSQL). Tabellen `users`, `files`, `shares`, `groups`, `group_memberships`, `group_uploads` werden beim Start erstellt.
 
 ## Wichtige Pfade
 - Upload-Root: `/opt/htl-upload/uploads/<username>/…` (konfigurierbar via `UPLOAD_ROOT`).

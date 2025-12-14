@@ -103,6 +103,7 @@
                   <form method="post" action="{{ url_for('favorite', file_id=file.id) }}" class="inline">
                     <button type="submit" class="icon-btn" title="Favorit">{% if file.is_favorite %}⭐{% else %}☆{% endif %}</button>
                   </form>
+                  <a class="icon-btn" href="{{ url_for('shares_new', file_id=file.id) }}" title="Teilen">🔗</a>
                   <a class="icon-btn" href="{{ url_for('preview', file_id=file.id) }}" title="Vorschau">👁</a>
                   <a class="icon-btn" href="{{ url_for('download', file_id=file.id) }}" title="Download">⬇</a>
                   <form method="post" action="{{ url_for('delete', file_id=file.id) }}" class="inline" onsubmit="return confirm('Datei löschen?');">

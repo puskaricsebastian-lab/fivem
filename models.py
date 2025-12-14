@@ -3,7 +3,18 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import List, Optional, Tuple
 
-from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Integer, String, create_engine, func, inspect
+from sqlalchemy import (
+    Boolean,
+    Column,
+    DateTime,
+    ForeignKey,
+    Integer,
+    String,
+    create_engine,
+    func,
+    inspect,
+    UniqueConstraint,
+)
 from sqlalchemy.orm import Session, declarative_base, relationship, scoped_session, sessionmaker
 from flask_login import UserMixin
 
@@ -42,27 +53,69 @@ class File(Base):
     user = relationship("User", back_populates="files")
 
 
+class Share(Base):
+    __tablename__ = "shares"
+    __table_args__ = (
+        UniqueConstraint("owner_id", "target_user_id", "file_id", name="uq_share_owner_target_file"),
+    )
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    owner_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    target_user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    file_id = Column(Integer, ForeignKey("files.id", ondelete="CASCADE"), nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+    owner = relationship("User", foreign_keys=[owner_id])
+    target_user = relationship("User", foreign_keys=[target_user_id])
+    file = relationship("File")
+
+
+class Group(Base):
+    __tablename__ = "groups"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    name = Column(String(255), nullable=False)
+    description = Column(String(1024), nullable=True)
+    join_code = Column(String(16), unique=True, nullable=False)
+    admin_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+    admin = relationship("User", foreign_keys=[admin_id])
+
+
+class GroupMembership(Base):
+    __tablename__ = "group_memberships"
+    __table_args__ = (
+        UniqueConstraint("group_id", "user_id", name="uq_group_user"),
+    )
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    group_id = Column(Integer, ForeignKey("groups.id", ondelete="CASCADE"), nullable=False)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    status = Column(String(20), default="pending", nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+    group = relationship("Group")
+    user = relationship("User")
+
+
+class GroupUpload(Base):
+    __tablename__ = "group_uploads"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    group_id = Column(Integer, ForeignKey("groups.id", ondelete="CASCADE"), nullable=False)
+    upload_id = Column(Integer, ForeignKey("files.id", ondelete="CASCADE"), nullable=False)
+    uploader_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+    group = relationship("Group")
+    upload = relationship("File")
+    uploader = relationship("User")
+
+
 # --- schema helpers -------------------------------------------------------
 
-def drop_legacy_tables() -> None:
-    inspector = inspect(engine)
-    legacy_tables = [
-        "email_verifications",
-        "shares",
-        "group_uploads",
-        "group_memberships",
-        "groups",
-        "persons",
-    ]
-    with engine.begin() as conn:
-        for table in legacy_tables:
-            if inspector.has_table(table):
-                conn.exec_driver_sql(f"DROP TABLE IF EXISTS {table}")
-
-
 def init_db() -> None:
-    # Drop legacy tables that are no longer used
-    drop_legacy_tables()
     Base.metadata.create_all(engine)
     migrate_from_uploads()
 
@@ -179,6 +232,137 @@ def list_files(
 
 def toggle_favorite(session: Session, file: File) -> None:
     file.is_favorite = not file.is_favorite
+
+
+# --- sharing ---------------------------------------------------------------
+
+def create_share(session: Session, *, owner_id: int, target_user_id: int, file_id: int) -> Share:
+    share = Share(owner_id=owner_id, target_user_id=target_user_id, file_id=file_id)
+    session.add(share)
+    session.flush()
+    return share
+
+
+def list_shares_for_owner(session: Session, owner_id: int) -> List[Share]:
+    return (
+        session.query(Share)
+        .filter(Share.owner_id == owner_id)
+        .order_by(Share.created_at.desc())
+        .all()
+    )
+
+
+def list_shares_for_target(session: Session, user_id: int) -> List[Share]:
+    return (
+        session.query(Share)
+        .filter(Share.target_user_id == user_id)
+        .order_by(Share.created_at.desc())
+        .all()
+    )
+
+
+def delete_share(session: Session, share_id: int, owner_id: int) -> bool:
+    share = session.query(Share).filter(Share.id == share_id, Share.owner_id == owner_id).one_or_none()
+    if share:
+        session.delete(share)
+        session.flush()
+        return True
+    return False
+
+
+def user_can_access_file(session: Session, user_id: int, file: File) -> bool:
+    if file.user_id == user_id:
+        return True
+    shared = (
+        session.query(Share)
+        .filter(Share.file_id == file.id, Share.target_user_id == user_id)
+        .first()
+    )
+    if shared:
+        return True
+    group_links = (
+        session.query(GroupUpload)
+        .join(GroupMembership, GroupMembership.group_id == GroupUpload.group_id)
+        .filter(
+            GroupUpload.upload_id == file.id,
+            GroupMembership.user_id == user_id,
+            GroupMembership.status == "accepted",
+        )
+        .count()
+    )
+    return group_links > 0
+
+
+# --- groups ----------------------------------------------------------------
+
+def create_group(session: Session, *, name: str, description: str | None, join_code: str, admin_id: int) -> Group:
+    group = Group(name=name, description=description, join_code=join_code, admin_id=admin_id)
+    session.add(group)
+    session.flush()
+    return group
+
+
+def get_group(session: Session, group_id: int) -> Optional[Group]:
+    return session.get(Group, group_id)
+
+
+def find_group_by_code(session: Session, code: str) -> Optional[Group]:
+    return session.query(Group).filter(func.lower(Group.join_code) == code.lower()).one_or_none()
+
+
+def create_membership(session: Session, *, group_id: int, user_id: int, status: str = "pending") -> GroupMembership:
+    membership = GroupMembership(group_id=group_id, user_id=user_id, status=status)
+    session.add(membership)
+    session.flush()
+    return membership
+
+
+def get_membership(session: Session, group_id: int, user_id: int) -> Optional[GroupMembership]:
+    return (
+        session.query(GroupMembership)
+        .filter(GroupMembership.group_id == group_id, GroupMembership.user_id == user_id)
+        .one_or_none()
+    )
+
+
+def list_memberships(session: Session, group_id: int, status: str | None = None) -> List[GroupMembership]:
+    query = session.query(GroupMembership).filter(GroupMembership.group_id == group_id)
+    if status:
+        query = query.filter(GroupMembership.status == status)
+    return query.order_by(GroupMembership.created_at.desc()).all()
+
+
+def set_membership_status(session: Session, membership_id: int, status: str) -> None:
+    membership = session.get(GroupMembership, membership_id)
+    if membership:
+        membership.status = status
+        session.flush()
+
+
+def add_group_upload(session: Session, *, group_id: int, upload_id: int, uploader_id: int) -> GroupUpload:
+    link = GroupUpload(group_id=group_id, upload_id=upload_id, uploader_id=uploader_id)
+    session.add(link)
+    session.flush()
+    return link
+
+
+def list_group_uploads(session: Session, group_id: int) -> List[GroupUpload]:
+    return (
+        session.query(GroupUpload)
+        .filter(GroupUpload.group_id == group_id)
+        .order_by(GroupUpload.created_at.desc())
+        .all()
+    )
+
+
+def list_groups_for_user(session: Session, user_id: int) -> List[Group]:
+    return (
+        session.query(Group)
+        .join(GroupMembership, GroupMembership.group_id == Group.id)
+        .filter(GroupMembership.user_id == user_id, GroupMembership.status == "accepted")
+        .order_by(Group.name.asc())
+        .all()
+    )
 
 
 def migrate_from_uploads() -> None:

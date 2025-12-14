@@ -11,10 +11,13 @@
   <header class="topbar">
     <div class="topbar__brand">HTL Upload</div>
     {% if current_user.is_authenticated %}
+    {% set endpoint = request.endpoint or '' %}
     <nav class="topbar__nav">
-      <a href="{{ url_for('dashboard') }}" class="nav__link{% if request.endpoint == 'dashboard' %} is-active{% endif %}">Dashboard</a>
-      <a href="{{ url_for('upload') }}" class="nav__link{% if request.endpoint == 'upload' %} is-active{% endif %}">Upload</a>
-      <a href="{{ url_for('files_view') }}" class="nav__link{% if request.endpoint == 'files_view' %} is-active{% endif %}">Dateien</a>
+      <a href="{{ url_for('dashboard') }}" class="nav__link{% if endpoint == 'dashboard' %} is-active{% endif %}">Dashboard</a>
+      <a href="{{ url_for('upload') }}" class="nav__link{% if endpoint == 'upload' %} is-active{% endif %}">Upload</a>
+      <a href="{{ url_for('files_view') }}" class="nav__link{% if endpoint == 'files_view' %} is-active{% endif %}">Dateien</a>
+      <a href="{{ url_for('shares_mine') }}" class="nav__link{% if endpoint in ['shares_mine','shares_new','shared_with_me'] %} is-active{% endif %}">Shares</a>
+      <a href="{{ url_for('groups_overview') }}" class="nav__link{% if endpoint.startswith('group') or endpoint.startswith('groups_') %} is-active{% endif %}">Gruppen</a>
       <a href="{{ url_for('logout') }}" class="nav__link">Logout</a>
     </nav>
     {% endif %}

@@ -2,6 +2,7 @@ import io
 import mimetypes
 import os
 import re
+import secrets
 import zipfile
 from datetime import datetime
 from pathlib import Path
@@ -30,17 +31,34 @@ from werkzeug.utils import secure_filename
 
 from models import (
     File,
+    Group,
+    GroupMembership,
+    GroupUpload,
     User,
     add_file,
-    create_user,
+    add_group_upload,
+    create_group,
+    create_membership,
+    create_share,
+    delete_share,
+    find_group_by_code,
     get_file,
+    get_group,
+    get_membership,
     get_session,
     get_user_by_email,
     get_user_by_username,
     init_db,
     list_files,
+    list_group_uploads,
+    list_groups_for_user,
+    list_memberships,
+    list_shares_for_owner,
+    list_shares_for_target,
     remove_session,
+    set_membership_status,
     toggle_favorite,
+    user_can_access_file,
 )
 
 
@@ -115,6 +133,10 @@ def human_size(num: int) -> str:
 
 def current_session():
     return get_session()
+
+
+def random_join_code() -> str:
+    return "#" + secrets.token_hex(3).upper()
 
 
 @login_manager.user_loader
@@ -274,13 +296,26 @@ def files_view():
 def upload():
     if request.method == "GET":
         rel_path = sanitize_rel_path(request.args.get("path"))
-        return render_template("upload.html", rel_path=rel_path)
+        group_id = request.args.get("group_id")
+        return render_template("upload.html", rel_path=rel_path, group_id=group_id)
 
     rel_path = sanitize_rel_path(request.form.get("path"))
     files: List[FileStorage] = request.files.getlist("files")
+    group_id_raw = request.form.get("group_id")
+    group = None
     if not files:
         flash("Keine Dateien ausgewählt.", "error")
         return redirect(url_for("upload", path=rel_path))
+
+    with current_session() as session:
+        if group_id_raw:
+            group = get_group(session, int(group_id_raw))
+            if not group:
+                abort(404)
+            membership = get_membership(session, group.id, current_user.id)
+            if not (group.admin_id == current_user.id or (membership and membership.status == "accepted")):
+                flash("Keine Berechtigung für diesen Gruppen-Upload.", "error")
+                return redirect(url_for("dashboard"))
 
     user_root = ensure_user_root(current_user.username)
     try:
@@ -298,7 +333,7 @@ def upload():
             storage.save(dest)
             size = dest.stat().st_size
             mime_type = storage.mimetype or mimetypes.guess_type(filename)[0]
-            add_file(
+            file = add_file(
                 session,
                 user_id=current_user.id,
                 rel_path=rel_path,
@@ -306,6 +341,8 @@ def upload():
                 size_bytes=size,
                 mime_type=mime_type,
             )
+            if group:
+                add_group_upload(session, group_id=group.id, upload_id=file.id, uploader_id=current_user.id)
         session.commit()
     flash("Upload abgeschlossen.", "success")
     return redirect(url_for("files_view", path=rel_path))
@@ -316,10 +353,11 @@ def upload():
 def download(file_id: int):
     with current_session() as session:
         file = get_file(session, file_id)
-        if not file or file.user_id != current_user.id:
+        if not file or not user_can_access_file(session, current_user.id, file):
             abort(404)
+        owner = file.user.username if file.user else current_user.username
         try:
-            path = safe_join_user_path(current_user.username, file.rel_path, file.filename)
+            path = safe_join_user_path(owner, file.rel_path, file.filename)
         except ValueError:
             abort(400)
         if not path.exists():
@@ -332,10 +370,11 @@ def download(file_id: int):
 def preview(file_id: int):
     with current_session() as session:
         file = get_file(session, file_id)
-        if not file or file.user_id != current_user.id:
+        if not file or not user_can_access_file(session, current_user.id, file):
             abort(404)
+        owner = file.user.username if file.user else current_user.username
         try:
-            path = safe_join_user_path(current_user.username, file.rel_path, file.filename)
+            path = safe_join_user_path(owner, file.rel_path, file.filename)
         except ValueError:
             abort(400)
         if not path.exists():
@@ -459,6 +498,162 @@ def bulk_move():
         session.commit()
     flash("Dateien verschoben.", "success")
     return redirect(url_for("files_view", path=target))
+
+
+# ---------------------------------------------------------------------------
+# shares
+# ---------------------------------------------------------------------------
+
+
+@app.route("/shares/new", methods=["GET", "POST"])
+@login_required
+def shares_new():
+    with current_session() as session:
+        own_files, _ = list_files(session, current_user.id, per_page=200)
+        if request.method == "GET":
+            preselect = request.args.get("file_id")
+            values = {"file_id": preselect} if preselect else None
+            return render_template("shares_new.html", files=own_files, values=values)
+
+        target_username = sanitize_username(request.form.get("target_username") or "")
+        file_id_raw = request.form.get("file_id")
+        errors = {}
+        target_user = get_user_by_username(session, target_username) if target_username else None
+        if not target_user:
+            errors["target_username"] = "Benutzer nicht gefunden."
+        file = get_file(session, int(file_id_raw)) if file_id_raw else None
+        if not file or file.user_id != current_user.id:
+            errors["file_id"] = "Ungültige Datei."
+        if errors:
+            return render_template("shares_new.html", files=own_files, errors=errors, values=request.form), 400
+        create_share(session, owner_id=current_user.id, target_user_id=target_user.id, file_id=file.id)
+        session.commit()
+        flash("Freigabe erstellt.", "success")
+        return redirect(url_for("shares_mine"))
+
+
+@app.route("/shares/mine")
+@login_required
+def shares_mine():
+    with current_session() as session:
+        shares = list_shares_for_owner(session, current_user.id)
+        return render_template("shares_mine.html", shares=shares)
+
+
+@app.route("/shared-with-me")
+@login_required
+def shared_with_me():
+    with current_session() as session:
+        shares = list_shares_for_target(session, current_user.id)
+        return render_template("shared_with_me.html", shares=shares)
+
+
+@app.route("/shares/<int:share_id>/delete", methods=["POST"])
+@login_required
+def delete_share_view(share_id: int):
+    with current_session() as session:
+        success = delete_share(session, share_id, current_user.id)
+        if success:
+            session.commit()
+            flash("Freigabe entfernt.", "success")
+        else:
+            flash("Freigabe nicht gefunden.", "error")
+    return redirect(request.referrer or url_for("shares_mine"))
+
+
+# ---------------------------------------------------------------------------
+# groups
+# ---------------------------------------------------------------------------
+
+
+@app.route("/groups")
+@login_required
+def groups_overview():
+    with current_session() as session:
+        groups = list_groups_for_user(session, current_user.id)
+        admin_groups = session.query(Group).filter(Group.admin_id == current_user.id).order_by(Group.name.asc()).all()
+        return render_template("groups.html", groups=groups, admin_groups=admin_groups)
+
+
+@app.route("/groups/new", methods=["GET", "POST"])
+@login_required
+def groups_new():
+    if request.method == "GET":
+        return render_template("group_new.html")
+    name = (request.form.get("name") or "").strip()
+    description = (request.form.get("description") or "").strip()
+    if not name:
+        flash("Gruppenname erforderlich.", "error")
+        return redirect(url_for("groups_new"))
+    with current_session() as session:
+        code = random_join_code()
+        group = create_group(session, name=name, description=description, join_code=code, admin_id=current_user.id)
+        # Admin direkt als accepted Mitglied
+        create_membership(session, group_id=group.id, user_id=current_user.id, status="accepted")
+        session.commit()
+        flash("Gruppe erstellt.", "success")
+        return redirect(url_for("group_detail", group_id=group.id))
+
+
+@app.route("/groups/join", methods=["GET", "POST"])
+@login_required
+def groups_join():
+    if request.method == "GET":
+        return render_template("group_join.html")
+    code = (request.form.get("code") or "").strip()
+    with current_session() as session:
+        group = find_group_by_code(session, code)
+        if not group:
+            flash("Gruppe nicht gefunden.", "error")
+            return redirect(url_for("groups_join"))
+        membership = get_membership(session, group.id, current_user.id)
+        if membership:
+            flash("Beitritt wurde bereits angefragt oder bestätigt.", "info")
+            return redirect(url_for("group_detail", group_id=group.id))
+        create_membership(session, group_id=group.id, user_id=current_user.id, status="pending")
+        session.commit()
+        flash("Beitrittsanfrage gesendet.", "success")
+        return redirect(url_for("group_detail", group_id=group.id))
+
+
+@app.route("/groups/<int:group_id>")
+@login_required
+def group_detail(group_id: int):
+    with current_session() as session:
+        group = get_group(session, group_id)
+        if not group:
+            abort(404)
+        membership = get_membership(session, group.id, current_user.id)
+        if not (group.admin_id == current_user.id or (membership and membership.status in {"accepted", "pending"})):
+            abort(403)
+        members = list_memberships(session, group.id, status="accepted")
+        pending = list_memberships(session, group.id, status="pending") if group.admin_id == current_user.id else []
+        uploads = list_group_uploads(session, group.id)
+        return render_template(
+            "group_detail.html",
+            group=group,
+            membership=membership,
+            members=members,
+            pending=pending,
+            uploads=uploads,
+            human_size=human_size,
+        )
+
+
+@app.route("/groups/<int:group_id>/requests/<int:membership_id>/<action>", methods=["POST"])
+@login_required
+def group_request_action(group_id: int, membership_id: int, action: str):
+    with current_session() as session:
+        group = get_group(session, group_id)
+        if not group or group.admin_id != current_user.id:
+            abort(403)
+        if action not in {"accept", "reject"}:
+            abort(400)
+        status = "accepted" if action == "accept" else "rejected"
+        set_membership_status(session, membership_id, status)
+        session.commit()
+        flash("Anfrage aktualisiert.", "success")
+    return redirect(url_for("group_detail", group_id=group_id))
 
 
 # ---------------------------------------------------------------------------

@@ -1,0 +1,20 @@
+{% extends 'base.html' %}
+{% block content %}
+<section class="section narrow">
+  <div class="card">
+    <div class="card__header">
+      <h2>Gruppe beitreten</h2>
+      <p class="muted small">Gib den Beitrittscode ein, um eine Anfrage zu senden.</p>
+    </div>
+    <form method="post" class="stack gap">
+      <label>Join-Code
+        <input type="text" name="code" placeholder="#XGU34" required>
+      </label>
+      <div class="actions end">
+        <a class="btn ghost" href="{{ url_for('groups_overview') }}">Abbrechen</a>
+        <button type="submit" class="btn primary">Anfrage senden</button>
+      </div>
+    </form>
+  </div>
+</section>
+{% endblock %}

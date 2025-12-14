@@ -1,0 +1,25 @@
+{% extends 'base.html' %}
+{% block content %}
+<section class="section narrow">
+  <div class="card">
+    <div class="card__header">
+      <div>
+        <h2>Neue Gruppe</h2>
+        <p class="muted small">Lege eine Gruppe an und teile den Beitrittscode.</p>
+      </div>
+    </div>
+    <form method="post" class="stack gap">
+      <label>Name
+        <input type="text" name="name" required>
+      </label>
+      <label>Beschreibung (optional)
+        <textarea name="description" rows="3"></textarea>
+      </label>
+      <div class="actions end">
+        <a class="btn ghost" href="{{ url_for('groups_overview') }}">Abbrechen</a>
+        <button type="submit" class="btn primary">Erstellen</button>
+      </div>
+    </form>
+  </div>
+</section>
+{% endblock %}
