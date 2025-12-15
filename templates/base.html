@@ -18,6 +18,8 @@
       <a href="{{ url_for('files_view') }}" class="nav__link{% if endpoint == 'files_view' %} is-active{% endif %}">Dateien</a>
       <a href="{{ url_for('shares_mine') }}" class="nav__link{% if endpoint in ['shares_mine','shares_new','shared_with_me'] %} is-active{% endif %}">Shares</a>
       <a href="{{ url_for('groups_overview') }}" class="nav__link{% if endpoint.startswith('group') or endpoint.startswith('groups_') %} is-active{% endif %}">Gruppen</a>
+      <a href="{{ url_for('friends') }}" class="nav__link{% if endpoint.startswith('friends') or endpoint.startswith('chat') %} is-active{% endif %}">Freunde</a>
+      <a href="{{ url_for('profile') }}" class="nav__link{% if endpoint == 'profile' %} is-active{% endif %}">Profil</a>
       <a href="{{ url_for('logout') }}" class="nav__link">Logout</a>
     </nav>
     {% endif %}

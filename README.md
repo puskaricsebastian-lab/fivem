@@ -5,10 +5,12 @@ Saubere Flask-Webapp zum Registrieren, Anmelden und Verwalten eigener Dateien/Or
 ## Features
 - Login/Registrierung mit eindeutiger E-Mail und Username, Passwort-Regeln (min. 8 Zeichen, 1 Groß-, 1 Kleinbuchstabe, 1 Zahl), Passwort-Hashing.
 - Dashboard mit Quick-Upload (Drag & Drop + Progress) und Liste der letzten Dateien.
-- „Meine Dateien“ mit Suche, Sortierung (Name/Datum/Größe), Typ-/Datumsfilter, Favoriten, Mehrfachauswahl (Löschen, Download als ZIP, Verschieben), Inline-Favoriten und Vorschau (Bilder/PDF inline, sonst Download).
+- „Meine Dateien“ mit Suche, Sortierung (Name/Datum/Größe), Typ-/Datumsfilter, Favoriten, Mehrfachauswahl (Löschen, Download als ZIP, Verschieben, ZIP erstellen), Inline-Favoriten und Vorschau (Bilder/PDF inline, sonst Download).
 - Ordner-Verwaltung: anlegen, umbenennen (wenn leer) und löschen (wenn leer), Breadcrumbs + Unterordner-Navigation.
 - Shares: Dateien gezielt mit einem anderen Benutzer teilen, Freigaben verwalten, „Mit mir geteilt“ einsehen.
 - Gruppen: Gruppen erstellen, Join-Code teilen, Beitritte genehmigen und gemeinsame Uploads für Mitglieder bereitstellen.
+- Freunde & Chats: Freundschaftsanfragen senden/annehmen, Chat mit Text oder angehängten Dateien (Freigabe erfolgt automatisch beim Senden).
+- Profil: Passwortwechsel direkt im UI.
 - Uploads optional in einen ausgewählten Unterordner; nie absolute Pfade oder Traversal.
 - Storage strikt pro Benutzer unter `/opt/htl-upload/uploads/<username>/…`; Dateidatenbank mit `files` (rel_path, filename, size, mime, favorite).
 

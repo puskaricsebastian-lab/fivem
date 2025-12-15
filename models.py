@@ -10,10 +10,11 @@ from sqlalchemy import (
     ForeignKey,
     Integer,
     String,
+    Text,
+    UniqueConstraint,
     create_engine,
     func,
     inspect,
-    UniqueConstraint,
 )
 from sqlalchemy.orm import Session, declarative_base, relationship, scoped_session, sessionmaker
 from flask_login import UserMixin
@@ -111,6 +112,37 @@ class GroupUpload(Base):
     group = relationship("Group")
     upload = relationship("File")
     uploader = relationship("User")
+
+
+class Friend(Base):
+    __tablename__ = "friends"
+    __table_args__ = (
+        UniqueConstraint("requester_id", "addressee_id", name="uq_friend_pair"),
+    )
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    requester_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    addressee_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    status = Column(String(20), default="pending", nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+    requester = relationship("User", foreign_keys=[requester_id])
+    addressee = relationship("User", foreign_keys=[addressee_id])
+
+
+class Message(Base):
+    __tablename__ = "messages"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    sender_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    receiver_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    content = Column(Text, nullable=True)
+    file_id = Column(Integer, ForeignKey("files.id", ondelete="SET NULL"), nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+    sender = relationship("User", foreign_keys=[sender_id])
+    receiver = relationship("User", foreign_keys=[receiver_id])
+    file = relationship("File")
 
 
 # --- schema helpers -------------------------------------------------------
@@ -363,6 +395,93 @@ def list_groups_for_user(session: Session, user_id: int) -> List[Group]:
         .order_by(Group.name.asc())
         .all()
     )
+
+
+# --- friends & messages ------------------------------------------------------
+
+
+def find_friendship(session: Session, user_a: int, user_b: int) -> Optional[Friend]:
+    return (
+        session.query(Friend)
+        .filter(
+            ((Friend.requester_id == user_a) & (Friend.addressee_id == user_b))
+            | ((Friend.requester_id == user_b) & (Friend.addressee_id == user_a))
+        )
+        .one_or_none()
+    )
+
+
+def create_friend_request(session: Session, *, requester_id: int, addressee_id: int) -> Friend:
+    friend = Friend(requester_id=requester_id, addressee_id=addressee_id, status="pending")
+    session.add(friend)
+    session.flush()
+    return friend
+
+
+def list_friend_requests(session: Session, user_id: int) -> List[Friend]:
+    return (
+        session.query(Friend)
+        .filter(Friend.addressee_id == user_id, Friend.status == "pending")
+        .order_by(Friend.created_at.desc())
+        .all()
+    )
+
+
+def list_outgoing_requests(session: Session, user_id: int) -> List[Friend]:
+    return (
+        session.query(Friend)
+        .filter(Friend.requester_id == user_id, Friend.status == "pending")
+        .order_by(Friend.created_at.desc())
+        .all()
+    )
+
+
+def list_friends(session: Session, user_id: int) -> List[Friend]:
+    return (
+        session.query(Friend)
+        .filter(
+            (Friend.status == "accepted")
+            & ((Friend.requester_id == user_id) | (Friend.addressee_id == user_id))
+        )
+        .order_by(Friend.created_at.desc())
+        .all()
+    )
+
+
+def set_friend_status(session: Session, friendship_id: int, status: str) -> Optional[Friend]:
+    friend = session.get(Friend, friendship_id)
+    if friend:
+        friend.status = status
+        session.flush()
+    return friend
+
+
+def list_messages_between(session: Session, user_a: int, user_b: int, limit: int = 200) -> List[Message]:
+    return (
+        session.query(Message)
+        .filter(
+            ((Message.sender_id == user_a) & (Message.receiver_id == user_b))
+            | ((Message.sender_id == user_b) & (Message.receiver_id == user_a))
+        )
+        .order_by(Message.created_at.asc())
+        .limit(limit)
+        .all()
+    )
+
+
+def add_message(
+    session: Session, *, sender_id: int, receiver_id: int, content: str | None, file_id: int | None
+) -> Message:
+    msg = Message(
+        sender_id=sender_id,
+        receiver_id=receiver_id,
+        content=content or "",
+        file_id=file_id,
+        created_at=datetime.utcnow(),
+    )
+    session.add(msg)
+    session.flush()
+    return msg
 
 
 def migrate_from_uploads() -> None:

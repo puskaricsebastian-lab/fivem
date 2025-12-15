@@ -31,17 +31,24 @@ from werkzeug.utils import secure_filename
 
 from models import (
     File,
+    Friend,
     Group,
     GroupMembership,
     GroupUpload,
+    Message,
+    Share,
     User,
+    add_message,
     add_file,
     add_group_upload,
     create_group,
+    create_user,
+    create_friend_request,
     create_membership,
     create_share,
     delete_share,
     find_group_by_code,
+    find_friendship,
     get_file,
     get_group,
     get_membership,
@@ -52,11 +59,16 @@ from models import (
     list_files,
     list_group_uploads,
     list_groups_for_user,
+    list_messages_between,
+    list_friend_requests,
+    list_outgoing_requests,
+    list_friends,
     list_memberships,
     list_shares_for_owner,
     list_shares_for_target,
     remove_session,
     set_membership_status,
+    set_friend_status,
     toggle_favorite,
     user_can_access_file,
 )
@@ -230,6 +242,30 @@ def logout():
     return redirect(url_for("auth"))
 
 
+@app.route("/profile", methods=["GET", "POST"])
+@login_required
+def profile():
+    errors = {}
+    if request.method == "POST":
+        current_pw = request.form.get("current_password") or ""
+        new_pw = request.form.get("new_password") or ""
+        repeat_pw = request.form.get("new_password_repeat") or ""
+        if not check_password_hash(current_user.password_hash, current_pw):
+            errors["current_password"] = "Aktuelles Passwort ist falsch."
+        if not valid_password(new_pw):
+            errors["new_password"] = "Passwort zu schwach (min 8, Groß/Klein, Zahl)."
+        if new_pw != repeat_pw:
+            errors["new_password_repeat"] = "Passwörter stimmen nicht überein."
+        if not errors:
+            with current_session() as session:
+                user = session.get(User, current_user.id)
+                user.password_hash = generate_password_hash(new_pw)
+                session.commit()
+            flash("Passwort aktualisiert.", "success")
+            return redirect(url_for("profile"))
+    return render_template("profile.html", errors=errors)
+
+
 # ---------------------------------------------------------------------------
 # dashboard & files
 # ---------------------------------------------------------------------------
@@ -238,7 +274,7 @@ def logout():
 def dashboard():
     with current_session() as session:
         files, _ = list_files(session, current_user.id, per_page=10)
-        return render_template("dashboard.html", recent=files)
+        return render_template("dashboard.html", recent=files, human_size=human_size)
 
 
 @app.route("/files")
@@ -500,6 +536,48 @@ def bulk_move():
     return redirect(url_for("files_view", path=target))
 
 
+@app.route("/bulk/zip", methods=["POST"])
+@login_required
+def bulk_zip():
+    ids = request.form.getlist("file_ids")
+    rel_path = sanitize_rel_path(request.form.get("return_path") or "")
+    if not ids:
+        flash("Keine Dateien ausgewählt.", "error")
+        return redirect(request.referrer or url_for("files_view"))
+    try:
+        target_dir = safe_join_user_path(current_user.username, rel_path)
+    except ValueError:
+        abort(400)
+    target_dir.mkdir(parents=True, exist_ok=True)
+    zip_name = f"bundle-{datetime.utcnow().strftime('%Y%m%d-%H%M%S')}.zip"
+    zip_path = target_dir / zip_name
+    with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
+        with current_session() as session:
+            for raw_id in ids:
+                file = get_file(session, int(raw_id))
+                if not file or file.user_id != current_user.id:
+                    continue
+                try:
+                    path = safe_join_user_path(current_user.username, file.rel_path, file.filename)
+                except ValueError:
+                    continue
+                if path.exists():
+                    arcname = f"{file.rel_path}/{file.filename}" if file.rel_path else file.filename
+                    zf.write(path, arcname=arcname)
+            size = zip_path.stat().st_size
+            add_file(
+                session,
+                user_id=current_user.id,
+                rel_path=rel_path,
+                filename=zip_name,
+                size_bytes=size,
+                mime_type="application/zip",
+            )
+            session.commit()
+    flash("ZIP erstellt.", "success")
+    return redirect(url_for("files_view", path=rel_path))
+
+
 # ---------------------------------------------------------------------------
 # shares
 # ---------------------------------------------------------------------------
@@ -546,6 +624,110 @@ def shared_with_me():
     with current_session() as session:
         shares = list_shares_for_target(session, current_user.id)
         return render_template("shared_with_me.html", shares=shares)
+
+
+# ---------------------------------------------------------------------------
+# friends & chat
+# ---------------------------------------------------------------------------
+
+
+@app.route("/friends", methods=["GET", "POST"])
+@login_required
+def friends():
+    errors = {}
+    with current_session() as session:
+        if request.method == "POST":
+            username = sanitize_username(request.form.get("username") or "")
+            if not username:
+                errors["username"] = "Ungültiger Benutzername."
+            else:
+                target = get_user_by_username(session, username)
+                if not target:
+                    errors["username"] = "Benutzer nicht gefunden."
+                elif target.id == current_user.id:
+                    errors["username"] = "Du kannst dich nicht selbst hinzufügen."
+                else:
+                    existing = find_friendship(session, current_user.id, target.id)
+                    if existing:
+                        errors["username"] = "Anfrage besteht bereits."
+                    else:
+                        create_friend_request(session, requester_id=current_user.id, addressee_id=target.id)
+                        session.commit()
+                        flash("Freundschaftsanfrage gesendet.", "success")
+                        return redirect(url_for("friends"))
+        incoming = list_friend_requests(session, current_user.id)
+        outgoing = list_outgoing_requests(session, current_user.id)
+        accepted = list_friends(session, current_user.id)
+    return render_template("friends.html", errors=errors, incoming=incoming, outgoing=outgoing, accepted=accepted)
+
+
+@app.route("/friends/<int:friend_id>/<action>", methods=["POST"])
+@login_required
+def friends_action(friend_id: int, action: str):
+    if action not in {"accept", "reject", "cancel"}:
+        abort(400)
+    with current_session() as session:
+        friend = session.get(Friend, friend_id)
+        if not friend:
+            abort(404)
+        if action in {"accept", "reject"} and friend.addressee_id != current_user.id:
+            abort(403)
+        if action == "cancel" and friend.requester_id != current_user.id:
+            abort(403)
+        status = "accepted" if action == "accept" else "rejected"
+        set_friend_status(session, friend_id, status)
+        session.commit()
+    flash("Status aktualisiert.", "success")
+    return redirect(url_for("friends"))
+
+
+@app.route("/chat/<int:user_id>", methods=["GET", "POST"])
+@login_required
+def chat(user_id: int):
+    with current_session() as session:
+        other = session.get(User, user_id)
+        if not other:
+            abort(404)
+        friendship = find_friendship(session, current_user.id, other.id)
+        if not friendship or friendship.status != "accepted":
+            abort(403)
+        if request.method == "POST":
+            content = (request.form.get("message") or "").strip()
+            file_id = request.form.get("file_id")
+            file_ref = None
+            if file_id:
+                file_ref = get_file(session, int(file_id))
+                if not file_ref or file_ref.user_id != current_user.id:
+                    abort(403)
+                existing_share = (
+                    session.query(Share)
+                    .filter(
+                        Share.file_id == file_ref.id,
+                        Share.owner_id == current_user.id,
+                        Share.target_user_id == other.id,
+                    )
+                    .one_or_none()
+                )
+                if not existing_share:
+                    create_share(
+                        session,
+                        owner_id=current_user.id,
+                        target_user_id=other.id,
+                        file_id=file_ref.id,
+                    )
+            add_message(
+                session,
+                sender_id=current_user.id,
+                receiver_id=other.id,
+                content=content,
+                file_id=file_ref.id if file_ref else None,
+            )
+            session.commit()
+            flash("Nachricht gesendet.", "success")
+            return redirect(url_for("chat", user_id=other.id))
+        messages = list_messages_between(session, current_user.id, other.id)
+        own_files, _ = list_files(session, current_user.id, per_page=100)
+    return render_template("chat.html", other=other, messages=messages, own_files=own_files, human_size=human_size)
 
 
 @app.route("/shares/<int:share_id>/delete", methods=["POST"])

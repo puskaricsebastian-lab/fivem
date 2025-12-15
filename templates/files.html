@@ -73,6 +73,7 @@
             <label class="checkbox"><input type="checkbox" id="select-all"> Alles</label>
             <button type="submit" class="btn ghost">Löschen</button>
             <button type="submit" formaction="{{ url_for('bulk_download') }}" class="btn ghost">Download ZIP</button>
+            <button type="submit" formaction="{{ url_for('bulk_zip') }}" class="btn ghost">ZIP erstellen</button>
             <button type="submit" formaction="{{ url_for('bulk_move') }}" class="btn ghost" data-action="move">Verschieben</button>
           </div>
           <div><a class="btn" href="{{ url_for('upload', path=rel_path) }}">Upload</a></div>
@@ -84,7 +85,7 @@
                 <th></th>
                 <th>Name</th>
                 <th>Typ</th>
-                <th>Pfad</th>
+                <th>Ordner</th>
                 <th>Größe</th>
                 <th>Datum</th>
                 <th></th>
@@ -94,9 +95,16 @@
               {% for file in files %}
               <tr>
                 <td><input type="checkbox" name="file_ids" value="{{ file.id }}" class="row-check"></td>
-                <td>{{ file.filename }}</td>
+                <td class="path-cell">
+                  {{ file.filename }}
+                  {% if file.is_favorite %}<span class="pill">⭐</span>{% endif %}
+                </td>
                 <td>{{ file.mime_type or '—' }}</td>
-                <td>{% if file.rel_path %}{{ file.rel_path }}{% else %}—{% endif %}</td>
+                <td>
+                  {% set path_label = file.rel_path.split('/')[-1] if file.rel_path else 'Home' %}
+                  <span class="path-short" title="{{ file.rel_path or 'Home' }}">{{ path_label }}</span>
+                  {% if file.rel_path %}<button type="button" class="link tiny" data-show-path="{{ file.rel_path }}">Pfad</button>{% endif %}
+                </td>
                 <td>{{ human_size(file.size_bytes) }}</td>
                 <td>{{ file.created_at.strftime('%d.%m.%Y %H:%M') }}</td>
                 <td class="table-actions">

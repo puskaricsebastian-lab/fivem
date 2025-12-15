@@ -75,6 +75,22 @@ function initFolderButtons() {
   });
 }
 
+function initPathReveal() {
+  document.addEventListener('click', (e) => {
+    const btn = e.target.closest('[data-show-path]');
+    if (!btn) return;
+    const full = btn.dataset.showPath;
+    if (full) alert(`Pfad: ${full}`);
+  });
+}
+
+function initChatScroll() {
+  const el = document.getElementById('chat-messages');
+  if (el) {
+    el.scrollTop = el.scrollHeight;
+  }
+}
+
 function postForm(url, data) {
   const form = document.createElement('form');
   form.method = 'post';
@@ -130,6 +146,8 @@ function init() {
   initFolderButtons();
   initDropzone('quick-upload', 'quick-files', 'quick-progress');
   initDropzone('upload-form', 'upload-files', 'upload-progress');
+  initPathReveal();
+  initChatScroll();
 }
 
 document.addEventListener('DOMContentLoaded', init);
