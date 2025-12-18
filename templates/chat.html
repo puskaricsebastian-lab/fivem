@@ -1,0 +1,45 @@
+{% extends 'base.html' %}
+{% block content %}
+<section class="section chat">
+  <div class="section__header">
+    <div>
+      <h2>Chat mit {{ other.username }}</h2>
+      <p class="muted">Teile Links, Nachrichten und Dateien.</p>
+    </div>
+    <a class="btn" href="{{ url_for('friends') }}">Zurück zu Freunde</a>
+  </div>
+
+  <div class="card chat__panel">
+    <div class="chat__messages" id="chat-messages">
+      {% for m in messages %}
+        <div class="chat__message {% if m.sender_id == current_user.id %}is-own{% endif %}">
+          <div class="chat__meta">{{ m.sender.username }} • {{ m.created_at.strftime('%d.%m.%Y %H:%M') }}</div>
+          {% if m.content %}<div class="chat__text">{{ m.content }}</div>{% endif %}
+          {% if m.file %}
+            <div class="chat__attachment">
+              📎 <a href="{{ url_for('download', file_id=m.file.id) }}">{{ m.file.filename }}</a>
+            </div>
+          {% endif %}
+        </div>
+      {% else %}
+        <p class="muted">Noch keine Nachrichten.</p>
+      {% endfor %}
+    </div>
+    <form method="post" class="chat__composer">
+      <textarea name="message" rows="2" placeholder="Nachricht schreiben"></textarea>
+      <div class="composer__actions">
+        <label>
+          Datei anhängen
+          <select name="file_id">
+            <option value="">Keine</option>
+            {% for file in own_files %}
+              <option value="{{ file.id }}">{{ file.filename }} ({{ human_size(file.size_bytes) }})</option>
+            {% endfor %}
+          </select>
+        </label>
+        <button class="btn primary" type="submit">Senden</button>
+      </div>
+    </form>
+  </div>
+</section>
+{% endblock %}

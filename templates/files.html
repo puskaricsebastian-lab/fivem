@@ -1,0 +1,133 @@
+{% extends 'base.html' %}
+{% block content %}
+<section class="section">
+  <div class="section__header">
+    <div>
+      <h2>Meine Dateien</h2>
+      <p class="muted">Organisiere deine Dateien und Ordner.</p>
+    </div>
+    <div class="actions">
+      <button class="btn" data-action="new-folder" data-path="{{ rel_path }}">Neuer Ordner</button>
+      {% if rel_path %}<button class="btn ghost" data-action="rename-folder" data-path="{{ rel_path }}">Ordner umbenennen</button>
+      <button class="btn ghost" data-action="delete-folder" data-path="{{ rel_path }}">Ordner löschen</button>{% endif %}
+      <a class="btn primary" href="{{ url_for('upload', path=rel_path) }}">Upload</a>
+    </div>
+  </div>
+
+  <div class="breadcrumbs">
+    <a href="{{ url_for('files_view') }}">Home</a>
+    {% set prefix = [] %}
+    {% for crumb in breadcrumbs %}
+      {% set prefix = prefix + [crumb] %}
+      <span>/</span>
+      <a href="{{ url_for('files_view', path='/'.join(prefix)) }}">{{ crumb }}</a>
+    {% endfor %}
+  </div>
+
+  <div class="filters">
+    <form method="get" action="{{ url_for('files_view') }}" class="filters__form">
+      <input type="hidden" name="path" value="{{ rel_path }}">
+      <input type="search" name="search" placeholder="Suche" value="{{ search }}">
+      <select name="type">
+        <option value="">Alle Typen</option>
+        <option value="image" {% if type_filter=='image' %}selected{% endif %}>Bilder</option>
+        <option value="pdf" {% if type_filter=='pdf' %}selected{% endif %}>PDF</option>
+        <option value="zip" {% if type_filter=='zip' %}selected{% endif %}>ZIP</option>
+      </select>
+      <select name="date">
+        <option value="">Alle Zeiträume</option>
+        <option value="today" {% if date_filter=='today' %}selected{% endif %}>Heute</option>
+        <option value="7d" {% if date_filter=='7d' %}selected{% endif %}>Letzte 7 Tage</option>
+        <option value="30d" {% if date_filter=='30d' %}selected{% endif %}>Letzte 30 Tage</option>
+      </select>
+      <label class="checkbox"><input type="checkbox" name="favorites" value="1" {% if favorites_only %}checked{% endif %}> Favoriten</label>
+      <select name="sort">
+        <option value="">Neueste zuerst</option>
+        <option value="name" {% if sort=='name' %}selected{% endif %}>Name A-Z</option>
+        <option value="name_desc" {% if sort=='name_desc' %}selected{% endif %}>Name Z-A</option>
+        <option value="size" {% if sort=='size' %}selected{% endif %}>Größe aufsteigend</option>
+        <option value="size_desc" {% if sort=='size_desc' %}selected{% endif %}>Größe absteigend</option>
+        <option value="date_old" {% if sort=='date_old' %}selected{% endif %}>Älteste zuerst</option>
+      </select>
+      <button class="btn" type="submit">Anwenden</button>
+    </form>
+  </div>
+
+  <div class="file-layout">
+    <div class="side">
+      <h4>Ordner</h4>
+      <ul class="folder-list">
+        {% for folder in subfolders %}
+          <li><a href="{{ url_for('files_view', path= folder if not rel_path else rel_path + '/' + folder ) }}">{{ folder }}</a></li>
+        {% else %}
+          <li class="muted">Keine Unterordner</li>
+        {% endfor %}
+      </ul>
+    </div>
+    <div class="content">
+      <form method="post" action="{{ url_for('bulk_delete') }}" id="bulk-form">
+        <input type="hidden" name="return_path" value="{{ rel_path }}">
+        <input type="hidden" name="target" id="bulk-target" value="">
+        <div class="table-actions-bar">
+          <div>
+            <label class="checkbox"><input type="checkbox" id="select-all"> Alles</label>
+            <button type="submit" class="btn ghost">Löschen</button>
+            <button type="submit" formaction="{{ url_for('bulk_download') }}" class="btn ghost">Download ZIP</button>
+            <button type="submit" formaction="{{ url_for('bulk_zip') }}" class="btn ghost">ZIP erstellen</button>
+            <button type="submit" formaction="{{ url_for('bulk_move') }}" class="btn ghost" data-action="move">Verschieben</button>
+          </div>
+          <div><a class="btn" href="{{ url_for('upload', path=rel_path) }}">Upload</a></div>
+        </div>
+        <div class="table-wrapper">
+          <table>
+            <thead>
+              <tr>
+                <th></th>
+                <th>Name</th>
+                <th>Typ</th>
+                <th>Ordner</th>
+                <th>Größe</th>
+                <th>Datum</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for file in files %}
+              <tr>
+                <td><input type="checkbox" name="file_ids" value="{{ file.id }}" class="row-check"></td>
+                <td class="path-cell">
+                  {{ file.filename }}
+                  {% if file.is_favorite %}<span class="pill">⭐</span>{% endif %}
+                </td>
+                <td>{{ file.mime_type or '—' }}</td>
+                <td>
+                  {% set path_label = file.rel_path.split('/')[-1] if file.rel_path else 'Home' %}
+                  <span class="path-short" title="{{ file.rel_path or 'Home' }}">{{ path_label }}</span>
+                  {% if file.rel_path %}<button type="button" class="link tiny" data-show-path="{{ file.rel_path }}">Pfad</button>{% endif %}
+                </td>
+                <td>{{ human_size(file.size_bytes) }}</td>
+                <td>{{ file.created_at.strftime('%d.%m.%Y %H:%M') }}</td>
+                <td class="table-actions">
+                  <form method="post" action="{{ url_for('favorite', file_id=file.id) }}" class="inline">
+                    <button type="submit" class="icon-btn" title="Favorit">{% if file.is_favorite %}⭐{% else %}☆{% endif %}</button>
+                  </form>
+                  <a class="icon-btn" href="{{ url_for('shares_new', file_id=file.id) }}" title="Teilen">🔗</a>
+                  <a class="icon-btn" href="{{ url_for('preview', file_id=file.id) }}" title="Vorschau">👁</a>
+                  <a class="icon-btn" href="{{ url_for('download', file_id=file.id) }}" title="Download">⬇</a>
+                  <form method="post" action="{{ url_for('delete', file_id=file.id) }}" class="inline" onsubmit="return confirm('Datei löschen?');">
+                    <input type="hidden" name="return_path" value="{{ rel_path }}">
+                    <button type="submit" class="icon-btn" title="Löschen">🗑</button>
+                  </form>
+                </td>
+              </tr>
+              {% else %}
+              <tr><td colspan="7" class="muted">Keine Dateien gefunden.</td></tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </form>
+    </div>
+  </div>
+</section>
+{% endblock %}

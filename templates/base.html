@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>HTL Upload</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+  <script defer src="{{ url_for('static', filename='app.js') }}"></script>
+</head>
+<body class="theme">
+  <header class="topbar">
+    <div class="topbar__brand">HTL Upload</div>
+    {% if current_user.is_authenticated %}
+    {% set endpoint = request.endpoint or '' %}
+    <nav class="topbar__nav">
+      <a href="{{ url_for('dashboard') }}" class="nav__link{% if endpoint == 'dashboard' %} is-active{% endif %}">Dashboard</a>
+      <a href="{{ url_for('upload') }}" class="nav__link{% if endpoint == 'upload' %} is-active{% endif %}">Upload</a>
+      <a href="{{ url_for('files_view') }}" class="nav__link{% if endpoint == 'files_view' %} is-active{% endif %}">Dateien</a>
+      <a href="{{ url_for('shares_mine') }}" class="nav__link{% if endpoint in ['shares_mine','shares_new','shared_with_me'] %} is-active{% endif %}">Shares</a>
+      <a href="{{ url_for('groups_overview') }}" class="nav__link{% if endpoint.startswith('group') or endpoint.startswith('groups_') %} is-active{% endif %}">Gruppen</a>
+      <a href="{{ url_for('friends') }}" class="nav__link{% if endpoint.startswith('friends') or endpoint.startswith('chat') %} is-active{% endif %}">Freunde</a>
+      <a href="{{ url_for('profile') }}" class="nav__link{% if endpoint == 'profile' %} is-active{% endif %}">Profil</a>
+      <a href="{{ url_for('logout') }}" class="nav__link">Logout</a>
+    </nav>
+    {% endif %}
+  </header>
+
+  <main class="page">
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% if messages %}
+        <div class="toast-container" id="toast-container">
+          {% for category, message in messages %}
+            <div class="toast toast--{{ category }}">{{ message }}</div>
+          {% endfor %}
+        </div>
+      {% endif %}
+    {% endwith %}
+    {% block content %}{% endblock %}
+  </main>
+</body>
+</html>

@@ -1,0 +1,77 @@
+{% extends 'base.html' %}
+{% block content %}
+<section class="section">
+  <div class="section__header">
+    <div>
+      <h2>Freunde</h2>
+      <p class="muted">Freundschaften verwalten und Chats öffnen.</p>
+    </div>
+    <form method="post" class="inline-form">
+      <input type="text" name="username" placeholder="Username hinzufügen" required>
+      {% if errors.username %}<span class="field-error inline">{{ errors.username }}</span>{% endif %}
+      <button class="btn primary" type="submit">Anfrage senden</button>
+    </form>
+  </div>
+
+  <div class="grid two">
+    <div class="card">
+      <div class="card__header">Eingehende Anfragen</div>
+      <ul class="list">
+        {% for f in incoming %}
+          <li>
+            <div>
+              <strong>{{ f.requester.username }}</strong>
+              <div class="muted small">{{ f.created_at.strftime('%d.%m.%Y %H:%M') }}</div>
+            </div>
+            <div class="list__actions">
+              <form method="post" action="{{ url_for('friends_action', friend_id=f.id, action='accept') }}" class="inline"><button class="btn ghost" type="submit">Annehmen</button></form>
+              <form method="post" action="{{ url_for('friends_action', friend_id=f.id, action='reject') }}" class="inline"><button class="btn ghost" type="submit">Ablehnen</button></form>
+            </div>
+          </li>
+        {% else %}
+          <li class="muted">Keine offenen Anfragen.</li>
+        {% endfor %}
+      </ul>
+    </div>
+
+    <div class="card">
+      <div class="card__header">Ausgehende Anfragen</div>
+      <ul class="list">
+        {% for f in outgoing %}
+          <li>
+            <div>
+              <strong>{{ f.addressee.username }}</strong>
+              <div class="muted small">{{ f.created_at.strftime('%d.%m.%Y %H:%M') }}</div>
+            </div>
+            <div class="list__actions">
+              <form method="post" action="{{ url_for('friends_action', friend_id=f.id, action='cancel') }}" class="inline"><button class="btn ghost" type="submit">Abbrechen</button></form>
+            </div>
+          </li>
+        {% else %}
+          <li class="muted">Keine offenen Anfragen.</li>
+        {% endfor %}
+      </ul>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card__header">Freundschaften</div>
+    <ul class="list">
+      {% for f in accepted %}
+        {% set partner = f.requester if f.requester_id != current_user.id else f.addressee %}
+        <li>
+          <div>
+            <strong>{{ partner.username }}</strong>
+            <div class="muted small">Seit {{ f.created_at.strftime('%d.%m.%Y') }}</div>
+          </div>
+          <div class="list__actions">
+            <a class="btn ghost" href="{{ url_for('chat', user_id=partner.id) }}">Chat</a>
+          </div>
+        </li>
+      {% else %}
+        <li class="muted">Noch keine Freunde.</li>
+      {% endfor %}
+    </ul>
+  </div>
+</section>
+{% endblock %}

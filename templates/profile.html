@@ -1,0 +1,24 @@
+{% extends 'base.html' %}
+{% block content %}
+<section class="section narrow">
+  <div class="card">
+    <h2>Profil</h2>
+    <p class="muted">Passe dein Passwort an.</p>
+    <form method="post" class="form-grid">
+      <label>Aktuelles Passwort
+        <input type="password" name="current_password" required>
+        {% if errors.current_password %}<span class="field-error">{{ errors.current_password }}</span>{% endif %}
+      </label>
+      <label>Neues Passwort
+        <input type="password" name="new_password" required>
+        {% if errors.new_password %}<span class="field-error">{{ errors.new_password }}</span>{% endif %}
+      </label>
+      <label>Neues Passwort wiederholen
+        <input type="password" name="new_password_repeat" required>
+        {% if errors.new_password_repeat %}<span class="field-error">{{ errors.new_password_repeat }}</span>{% endif %}
+      </label>
+      <button class="btn primary">Speichern</button>
+    </form>
+  </div>
+</section>
+{% endblock %}

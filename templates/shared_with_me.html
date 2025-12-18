@@ -1,0 +1,32 @@
+{% extends 'base.html' %}
+{% block content %}
+<section class="section">
+  <div class="section__header">
+    <div>
+      <h2>Mit mir geteilt</h2>
+      <p class="muted">Dateien, die andere mit dir geteilt haben.</p>
+    </div>
+  </div>
+  <div class="table-wrapper">
+    <table>
+      <thead><tr><th>Von</th><th>Name</th><th>Pfad</th><th>Datum</th><th></th></tr></thead>
+      <tbody>
+        {% for share in shares %}
+        <tr>
+          <td>{{ share.owner.username }}</td>
+          <td>{{ share.file.filename }}</td>
+          <td>{% if share.file.rel_path %}{{ share.file.rel_path }}{% else %}—{% endif %}</td>
+          <td>{{ share.created_at.strftime('%d.%m.%Y %H:%M') }}</td>
+          <td class="table-actions">
+            <a class="btn ghost" href="{{ url_for('preview', file_id=share.file.id) }}">Öffnen</a>
+            <a class="btn" href="{{ url_for('download', file_id=share.file.id) }}">Download</a>
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="5" class="muted">Keine Freigaben vorhanden.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+{% endblock %}

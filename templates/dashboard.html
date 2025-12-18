@@ -1,0 +1,64 @@
+{% extends 'base.html' %}
+{% block content %}
+<section class="section">
+  <div class="section__header">
+    <div>
+      <h2>Dashboard</h2>
+      <p class="muted">Schneller Überblick und Upload.</p>
+    </div>
+    <a class="btn" href="{{ url_for('upload') }}">Zum Upload</a>
+  </div>
+  <div class="grid">
+    <div class="card">
+      <div class="card__header">
+        <div>
+          <h3>Quick Upload</h3>
+          <p class="muted small">Dateien per Drag & Drop oder Auswahl hinzufügen.</p>
+        </div>
+      </div>
+      <form class="dropzone" id="quick-upload" action="{{ url_for('upload') }}" method="post" enctype="multipart/form-data">
+        <input type="hidden" name="path" value="">
+        <input class="dropzone__input" id="quick-files" type="file" name="files" multiple>
+        <div class="dropzone__icon">⬆</div>
+        <p>Ziehen und ablegen oder klicken, um Dateien zu wählen.</p>
+        <div class="progress" id="quick-progress"><div class="progress__bar"></div></div>
+        <div class="actions"><button type="submit" class="btn primary">Hochladen</button></div>
+      </form>
+    </div>
+    <div class="card">
+      <div class="card__header">
+        <div>
+          <h3>Letzte Dateien</h3>
+          <p class="muted small">Deine letzten Uploads (max. 10).</p>
+        </div>
+        <a href="{{ url_for('files_view') }}" class="btn ghost">Alle ansehen</a>
+      </div>
+      <div class="table-wrapper">
+        <table>
+          <thead>
+            <tr><th>Name</th><th>Ordner</th><th>Größe</th><th>Datum</th><th></th></tr>
+          </thead>
+          <tbody>
+            {% for file in recent %}
+            <tr>
+              <td>{{ file.filename }}</td>
+              <td>
+                {% set path_label = file.rel_path.split('/')[-1] if file.rel_path else 'Home' %}
+                <span class="path-short" title="{{ file.rel_path or 'Home' }}">{{ path_label }}</span>
+              </td>
+              <td>{{ human_size(file.size_bytes) }}</td>
+              <td>{{ file.created_at.strftime('%d.%m.%Y %H:%M') }}</td>
+              <td class="table-actions">
+                <a href="{{ url_for('download', file_id=file.id) }}" class="btn ghost">Download</a>
+              </td>
+            </tr>
+            {% else %}
+            <tr><td colspan="5" class="muted">Noch keine Uploads.</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</section>
+{% endblock %}

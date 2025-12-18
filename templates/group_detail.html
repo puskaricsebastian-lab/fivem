@@ -1,0 +1,93 @@
+{% extends 'base.html' %}
+{% block content %}
+<section class="section">
+  <div class="section__header">
+    <div>
+      <h2>{{ group.name }}</h2>
+      <p class="muted">{{ group.description or 'Keine Beschreibung' }}</p>
+    </div>
+    <div class="actions">
+      <span class="pill">Code: {{ group.join_code }}</span>
+      <a class="btn" href="{{ url_for('groups_overview') }}">Zur Übersicht</a>
+    </div>
+  </div>
+
+  <div class="grid two">
+    <div class="card">
+      <div class="card__header"><h3>Mitglieder</h3></div>
+      <ul class="list">
+        {% for m in members %}
+          <li>{{ m.user.username }} {% if m.user_id == group.admin_id %}<span class="pill">Admin</span>{% endif %}</li>
+        {% else %}
+          <li class="muted">Noch keine Mitglieder.</li>
+        {% endfor %}
+      </ul>
+      {% if membership and membership.status == 'pending' %}<p class="muted small">Deine Anfrage wartet auf Bestätigung.</p>{% endif %}
+    </div>
+    <div class="card">
+      <div class="card__header"><h3>Uploads</h3></div>
+      {% if (membership and membership.status == 'accepted') or group.admin_id == current_user.id %}
+      <form class="stack gap" method="post" action="{{ url_for('upload') }}" enctype="multipart/form-data">
+        <input type="hidden" name="group_id" value="{{ group.id }}">
+        <label>Dateien
+          <input type="file" name="files" multiple required>
+        </label>
+        <div class="actions end"><button type="submit" class="btn primary">Hochladen</button></div>
+      </form>
+      {% else %}
+      <p class="muted small">Uploads erst nach Freischaltung möglich.</p>
+      {% endif %}
+      <div class="table-wrapper top-gap">
+        <table>
+          <thead><tr><th>Name</th><th>Uploader</th><th>Größe</th><th>Datum</th><th></th></tr></thead>
+          <tbody>
+            {% for link in uploads %}
+              <tr>
+                <td>{{ link.upload.filename }}</td>
+                <td>{{ link.uploader.username }}</td>
+                <td>{{ human_size(link.upload.size_bytes) }}</td>
+                <td>{{ link.created_at.strftime('%d.%m.%Y %H:%M') }}</td>
+                <td class="table-actions">
+                  <a class="btn ghost" href="{{ url_for('preview', file_id=link.upload.id) }}">Öffnen</a>
+                  <a class="btn" href="{{ url_for('download', file_id=link.upload.id) }}">Download</a>
+                </td>
+              </tr>
+            {% else %}
+              <tr><td colspan="5" class="muted">Keine Uploads in dieser Gruppe.</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  {% if pending %}
+  <div class="card top-gap">
+    <div class="card__header"><h3>Beitrittsanfragen</h3></div>
+    <div class="table-wrapper">
+      <table>
+        <thead><tr><th>User</th><th>Datum</th><th></th></tr></thead>
+        <tbody>
+          {% for req in pending %}
+          <tr>
+            <td>{{ req.user.username }}</td>
+            <td>{{ req.created_at.strftime('%d.%m.%Y %H:%M') }}</td>
+            <td class="table-actions">
+              <form class="inline" method="post" action="{{ url_for('group_request_action', group_id=group.id, membership_id=req.id, action='accept') }}">
+                <button class="btn primary" type="submit">Akzeptieren</button>
+              </form>
+              <form class="inline" method="post" action="{{ url_for('group_request_action', group_id=group.id, membership_id=req.id, action='reject') }}">
+                <button class="btn ghost" type="submit">Ablehnen</button>
+              </form>
+            </td>
+          </tr>
+          {% else %}
+          <tr><td colspan="3" class="muted">Keine offenen Anfragen.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+  {% endif %}
+</section>
+{% endblock %}

@@ -1,0 +1,34 @@
+{% extends 'base.html' %}
+{% block content %}
+<section class="section">
+  <div class="section__header">
+    <div>
+      <h2>Von mir geteilt</h2>
+      <p class="muted">Alle Freigaben, die du vergeben hast.</p>
+    </div>
+    <a class="btn primary" href="{{ url_for('shares_new') }}">Neue Freigabe</a>
+  </div>
+  <div class="table-wrapper">
+    <table>
+      <thead><tr><th>Benutzer</th><th>Datei</th><th>Pfad</th><th>Freigegeben am</th><th></th></tr></thead>
+      <tbody>
+        {% for share in shares %}
+        <tr>
+          <td>{{ share.target_user.username }}</td>
+          <td>{{ share.file.filename }}</td>
+          <td>{% if share.file.rel_path %}{{ share.file.rel_path }}{% else %}—{% endif %}</td>
+          <td>{{ share.created_at.strftime('%d.%m.%Y %H:%M') }}</td>
+          <td class="table-actions">
+            <form method="post" action="{{ url_for('delete_share_view', share_id=share.id) }}" class="inline" onsubmit="return confirm('Freigabe entfernen?');">
+              <button type="submit" class="btn ghost">Entfernen</button>
+            </form>
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="5" class="muted">Noch keine Freigaben.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+{% endblock %}

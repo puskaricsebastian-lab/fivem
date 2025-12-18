@@ -1,0 +1,32 @@
+{% extends 'base.html' %}
+{% block content %}
+<section class="section narrow">
+  <div class="card">
+    <div class="card__header">
+      <div>
+        <h2>Freigabe erstellen</h2>
+        <p class="muted small">Teile eine deiner Dateien mit einem anderen Benutzer.</p>
+      </div>
+      <a class="btn ghost" href="{{ url_for('shares_mine') }}">Meine Freigaben</a>
+    </div>
+    <form method="post" class="stack gap">
+      <label>Ziel-Benutzername
+        <input type="text" name="target_username" placeholder="username" value="{{ values.target_username if values else '' }}" required>
+        {% if errors and errors.get('target_username') %}<span class="field-error">{{ errors.get('target_username') }}</span>{% endif %}
+      </label>
+      <label>Datei auswählen
+        <select name="file_id" required>
+          <option value="">Bitte wählen</option>
+          {% for file in files %}
+            <option value="{{ file.id }}" {% if values and values.get('file_id') == file.id|string %}selected{% endif %}>{{ file.filename }}{% if file.rel_path %} ({{ file.rel_path }}){% endif %}</option>
+          {% endfor %}
+        </select>
+        {% if errors and errors.get('file_id') %}<span class="field-error">{{ errors.get('file_id') }}</span>{% endif %}
+      </label>
+      <div class="actions end">
+        <button type="submit" class="btn primary">Freigeben</button>
+      </div>
+    </form>
+  </div>
+</section>
+{% endblock %}

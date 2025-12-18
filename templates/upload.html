@@ -1,0 +1,29 @@
+{% extends 'base.html' %}
+{% block content %}
+<section class="section">
+  <div class="section__header">
+    <div>
+      <h2>Upload</h2>
+      <p class="muted">Lege Dateien direkt in den gewünschten Ordner.</p>
+    </div>
+    <div class="breadcrumbs">
+      <a href="{{ url_for('files_view') }}">Home</a>
+      {% set prefix = [] %}
+      {% for crumb in (rel_path.split('/') if rel_path else []) %}
+        {% set prefix = prefix + [crumb] %}
+        <span>/</span><a href="{{ url_for('upload', path='/'.join(prefix)) }}">{{ crumb }}</a>
+      {% endfor %}
+    </div>
+  </div>
+  <div class="card">
+    <form class="dropzone" id="upload-form" action="{{ url_for('upload') }}" method="post" enctype="multipart/form-data">
+      <input type="hidden" name="path" value="{{ rel_path }}">
+      <input class="dropzone__input" id="upload-files" type="file" name="files" multiple>
+      <div class="dropzone__icon">⬆</div>
+      <p>Ziehen und ablegen oder klicken, um Dateien zu wählen.</p>
+      <div class="progress" id="upload-progress"><div class="progress__bar"></div></div>
+      <div class="actions"><button type="submit" class="btn primary">Hochladen</button></div>
+    </form>
+  </div>
+</section>
+{% endblock %}
