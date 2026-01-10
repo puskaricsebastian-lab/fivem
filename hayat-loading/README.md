@@ -18,6 +18,11 @@
 - **Logo/Banner:**
   - `showLogo` + `logoFileName` (Datei in `html/assets/images/`).
   - `showBanner` + `bannerFileName` (Datei in `html/assets/images/`).
+
+## Dateien hinzufügen (Bilder, Musik, Video)
+- **Logos/Banner:** Lege deine Dateien in `hayat-loading/html/assets/images/` ab und trage den Dateinamen in `config/config.lua` bei `logoFileName` und `bannerFileName` ein.
+- **Musik (MP3):** Lege die Datei in `hayat-loading/html/assets/music/` ab und setze `music.localAudioPath` (z. B. `assets/music/meintrack.mp3`).
+- **Video (MP4):** Lege die Datei in `hayat-loading/html/assets/video/` ab und setze `background.localVideoPath` (z. B. `assets/video/meinvideo.mp4`).
 - **Discord:** `discord`.
 - **Partikel/Snow:** `showSnow` (true/false).
 

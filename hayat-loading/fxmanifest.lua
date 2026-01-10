@@ -15,6 +15,9 @@ files {
   'html/assets/js/app.js',
   'html/assets/fonts/*',
   'html/assets/images/*',
+  'html/assets/images/**/*',
   'html/assets/music/*',
-  'html/assets/video/*'
+  'html/assets/music/**/*',
+  'html/assets/video/*',
+  'html/assets/video/**/*'
 }
