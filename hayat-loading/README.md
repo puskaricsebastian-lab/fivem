@@ -21,4 +21,4 @@
 - **Partikel/Snow:** `showSnow` (true/false).
 
 ## Hinweise zu YouTube Autoplay
-Browser blockieren oft Autoplay mit Sound. Der Loadingscreen startet daher stumm und zeigt eine Schaltfläche „Sound aktivieren“. Nach dem ersten Klick wird der Sound freigeschaltet.
+Browser können Autoplay mit Sound blockieren. In diesem Fall startet die Musik stumm, obwohl ein automatischer Start versucht wird.

@@ -53,8 +53,6 @@ const elements = {
   progressFill: document.getElementById('progress-fill'),
   progressValue: document.getElementById('progress-value'),
   loadingTip: document.getElementById('loading-tip'),
-  audioOverlay: document.getElementById('audio-overlay'),
-  enableAudio: document.getElementById('enable-audio'),
   particles: document.getElementById('particles')
 };
 
@@ -156,7 +154,6 @@ const setupLocalVideo = () => {
 const setupMusic = () => {
   localAudio = null;
   musicPlayer = null;
-  elements.audioOverlay.classList.add('hidden');
 
   if (config.music.useYoutube) {
     const videoId = extractYoutubeId(config.music.youtubeUrl);
@@ -188,8 +185,7 @@ const setupMusic = () => {
           onReady: (event) => {
             event.target.setVolume(config.music.defaultVolume * 100);
             event.target.playVideo();
-            event.target.mute();
-            showAudioOverlay();
+            event.target.unMute();
           }
         }
       });
@@ -206,30 +202,8 @@ const setupLocalAudio = () => {
   localAudio.volume = config.music.defaultVolume;
   localAudio.autoplay = true;
   document.body.appendChild(localAudio);
-  localAudio.muted = true;
+  localAudio.muted = false;
   localAudio.play().catch(() => {});
-  showAudioOverlay();
-};
-
-const showAudioOverlay = () => {
-  elements.audioOverlay.classList.remove('hidden');
-};
-
-const hideAudioOverlay = () => {
-  elements.audioOverlay.classList.add('hidden');
-};
-
-const enableAudio = () => {
-  if (musicPlayer) {
-    musicPlayer.unMute();
-  }
-
-  if (localAudio) {
-    localAudio.muted = false;
-    localAudio.play().catch(() => {});
-  }
-
-  hideAudioOverlay();
 };
 
 const setupTips = () => {
@@ -377,8 +351,6 @@ window.addEventListener('message', (event) => {
     updateProgress(data.value);
   }
 });
-
-elements.enableAudio.addEventListener('click', enableAudio);
 
 document.addEventListener('DOMContentLoaded', () => {
   applyConfig(config);

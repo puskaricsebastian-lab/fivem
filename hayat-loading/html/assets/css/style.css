@@ -51,41 +51,6 @@ body {
   z-index: 1;
 }
 
-#audio-overlay {
-  position: fixed;
-  inset: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: rgba(5, 5, 12, 0.75);
-  z-index: 10;
-  transition: opacity 0.3s ease;
-}
-
-#audio-overlay.hidden {
-  opacity: 0;
-  pointer-events: none;
-}
-
-.audio-overlay-card {
-  background: rgba(15, 10, 25, 0.8);
-  border: 1px solid rgba(124, 58, 237, 0.35);
-  padding: 24px 32px;
-  border-radius: 18px;
-  text-align: center;
-  box-shadow: 0 0 25px rgba(124, 58, 237, 0.35);
-}
-
-.audio-overlay-card button {
-  margin-top: 12px;
-  padding: 10px 20px;
-  border-radius: 999px;
-  border: none;
-  background: var(--theme-color);
-  color: #fff;
-  font-weight: 600;
-  cursor: pointer;
-}
 
 #layout {
   position: relative;
