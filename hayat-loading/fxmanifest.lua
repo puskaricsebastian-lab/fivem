@@ -3,6 +3,7 @@ fx_version 'cerulean'
 game 'gta5'
 
 loadscreen 'html/index.html'
+loadscreen_manual_shutdown 'yes'
 ui_page 'html/index.html'
 
 shared_script 'config/config.lua'

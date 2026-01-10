@@ -25,6 +25,9 @@ CreateThread(function()
         })
         Wait(200)
     end
+
+    ShutdownLoadingScreenNui()
+    ShutdownLoadingScreen()
 end)
 
 AddEventHandler('onClientResourceStart', function(resourceName)
