@@ -146,10 +146,12 @@ const setupBackground = () => {
 const setupLocalVideo = () => {
   const video = document.createElement('video');
   video.src = config.background.localVideoPath;
+  video.preload = 'auto';
   video.autoplay = true;
   video.loop = true;
   video.muted = true;
   video.playsInline = true;
+  video.load();
   elements.backgroundMedia.appendChild(video);
 };
 
@@ -201,11 +203,13 @@ const setupMusic = () => {
 const setupLocalAudio = () => {
   localAudio = document.createElement('audio');
   localAudio.src = config.music.localAudioPath;
+  localAudio.preload = 'auto';
   localAudio.loop = true;
   localAudio.volume = config.music.defaultVolume;
   localAudio.autoplay = true;
   document.body.appendChild(localAudio);
   localAudio.muted = false;
+  localAudio.load();
   localAudio.play().catch(() => {});
   localAudio.addEventListener('loadedmetadata', () => {
     updateTrackTime(localAudio.currentTime, localAudio.duration);

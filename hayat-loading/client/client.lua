@@ -13,7 +13,8 @@ local function sendConfig()
 end
 
 CreateThread(function()
-    SetNuiFocus(false, false)
+    SetNuiFocus(true, true)
+    SetNuiFocusKeepInput(false)
     sendConfig()
 
     local progress = 0
@@ -28,6 +29,7 @@ CreateThread(function()
 
     ShutdownLoadingScreenNui()
     ShutdownLoadingScreen()
+    SetNuiFocus(false, false)
 end)
 
 AddEventHandler('onClientResourceStart', function(resourceName)
@@ -36,4 +38,14 @@ AddEventHandler('onClientResourceStart', function(resourceName)
     end
 
     sendConfig()
+end)
+
+CreateThread(function()
+    while not NetworkIsSessionStarted() do
+        Wait(500)
+    end
+
+    ShutdownLoadingScreenNui()
+    ShutdownLoadingScreen()
+    SetNuiFocus(false, false)
 end)

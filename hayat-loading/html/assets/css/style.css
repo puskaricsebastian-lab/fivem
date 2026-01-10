@@ -21,6 +21,7 @@ body {
   overflow: hidden;
   color: #f9f5ff;
   background: #0b0712;
+  cursor: default;
 }
 
 #background {
