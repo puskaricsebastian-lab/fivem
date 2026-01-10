@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Hayat Loading</title>
+  <link rel="stylesheet" href="assets/css/style.css" />
+</head>
+<body>
+  <div id="background">
+    <div id="background-media"></div>
+    <div id="background-overlay"></div>
+  </div>
+
+  <div id="audio-overlay" class="hidden">
+    <div class="audio-overlay-card">
+      <p>Sound ist stumm geschaltet</p>
+      <button id="enable-audio">Klicken, um Sound zu aktivieren</button>
+    </div>
+  </div>
+
+  <main id="layout">
+    <header class="top-banner">
+      <img id="banner-image" alt="Hayat Banner" />
+    </header>
+
+    <section class="center-branding">
+      <img id="logo-image" alt="Server Logo" />
+      <h1 id="server-name">Hayat City</h1>
+      <p id="server-slogan">Dein Leben. Deine Story.</p>
+      <div id="discord" class="discord-badge">discord.gg/hayatcity</div>
+    </section>
+
+    <section class="loading-area">
+      <div class="progress-header">
+        <span id="progress-label">Lade Welt...</span>
+        <span id="progress-value">0%</span>
+      </div>
+      <div class="progress-bar">
+        <div class="progress-fill" id="progress-fill"></div>
+      </div>
+      <div id="loading-tip" class="loading-tip"></div>
+    </section>
+
+    <section class="welcome-footer">
+      <p id="welcome-text">Willkommen in Hayat City — wir freuen uns, dass du da bist.</p>
+    </section>
+
+    <section class="music-controls">
+      <button class="control" id="play-pause" title="Play/Pause">⏯</button>
+      <button class="control" id="volume-down" title="Leiser">🔉</button>
+      <button class="control" id="volume-up" title="Lauter">🔊</button>
+      <button class="control" id="mute" title="Mute">🔇</button>
+    </section>
+  </main>
+
+  <div id="particles" class="particles"></div>
+
+  <script src="assets/js/app.js"></script>
+</body>
+</html>
