@@ -4,7 +4,7 @@ game 'gta5'
 
 loadscreen 'html/index.html'
 loadscreen_manual_shutdown 'yes'
-ui_page 'html/index.html'
+loadscreen_cursor 'yes'
 
 shared_script 'config/config.lua'
 client_script 'client/client.lua'

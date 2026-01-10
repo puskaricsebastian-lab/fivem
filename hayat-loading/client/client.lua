@@ -13,23 +13,7 @@ local function sendConfig()
 end
 
 CreateThread(function()
-    SetNuiFocus(true, true)
-    SetNuiFocusKeepInput(false)
     sendConfig()
-
-    local progress = 0
-    while progress < 100 do
-        progress = math.min(progress + math.random(1, 4), 100)
-        SendNUIMessage({
-            type = 'progress',
-            value = progress
-        })
-        Wait(200)
-    end
-
-    ShutdownLoadingScreenNui()
-    ShutdownLoadingScreen()
-    SetNuiFocus(false, false)
 end)
 
 AddEventHandler('onClientResourceStart', function(resourceName)
@@ -45,7 +29,7 @@ CreateThread(function()
         Wait(500)
     end
 
+    SendNUIMessage({ type = 'ready' })
     ShutdownLoadingScreenNui()
     ShutdownLoadingScreen()
-    SetNuiFocus(false, false)
 end)

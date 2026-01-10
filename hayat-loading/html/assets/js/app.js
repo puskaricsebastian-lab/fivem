@@ -41,6 +41,7 @@ let musicPlayer = null;
 let localAudio = null;
 let progressValue = 0;
 let tipIndex = 0;
+let autoProgressInterval = null;
 
 const elements = {
   backgroundMedia: document.getElementById('background-media'),
@@ -293,6 +294,29 @@ const updateProgress = (value) => {
   elements.progressValue.textContent = `${progressValue}%`;
 };
 
+const startAutoProgress = () => {
+  if (autoProgressInterval) {
+    return;
+  }
+
+  autoProgressInterval = setInterval(() => {
+    if (progressValue >= 95) {
+      return;
+    }
+
+    const increment = 0.6 + Math.random() * 1.2;
+    updateProgress(progressValue + increment);
+  }, 220);
+};
+
+const finishProgress = () => {
+  updateProgress(100);
+  if (autoProgressInterval) {
+    clearInterval(autoProgressInterval);
+    autoProgressInterval = null;
+  }
+};
+
 const extractYoutubeId = (url) => {
   if (!url) {
     return null;
@@ -398,9 +422,14 @@ window.addEventListener('message', (event) => {
   if (data.type === 'progress') {
     updateProgress(data.value);
   }
+
+  if (data.type === 'ready') {
+    finishProgress();
+  }
 });
 
 document.addEventListener('DOMContentLoaded', () => {
   applyConfig(config);
   updateProgress(0);
+  startAutoProgress();
 });
