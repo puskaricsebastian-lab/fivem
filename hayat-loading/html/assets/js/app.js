@@ -16,6 +16,7 @@ const defaultConfig = {
   music: {
     useYoutube: true,
     youtubeUrl: 'https://www.youtube.com/watch?v=jfKfPfyJRdk',
+    trackName: 'Lofi Hip Hop Radio',
     localAudioPath: 'assets/music/loading.mp3',
     defaultVolume: 0.25
   },
@@ -46,21 +47,22 @@ const elements = {
   backgroundOverlay: document.getElementById('background-overlay'),
   serverName: document.getElementById('server-name'),
   serverSlogan: document.getElementById('server-slogan'),
-  welcomeText: document.getElementById('welcome-text'),
   discord: document.getElementById('discord'),
   logo: document.getElementById('logo-image'),
   banner: document.getElementById('banner-image'),
   progressFill: document.getElementById('progress-fill'),
   progressValue: document.getElementById('progress-value'),
   loadingTip: document.getElementById('loading-tip'),
-  particles: document.getElementById('particles')
+  particles: document.getElementById('particles'),
+  trackTitle: document.getElementById('track-title'),
+  trackTime: document.getElementById('track-time'),
+  trackSeek: document.getElementById('track-seek')
 };
 
 const controls = {
   playPause: document.getElementById('play-pause'),
   volumeDown: document.getElementById('volume-down'),
-  volumeUp: document.getElementById('volume-up'),
-  mute: document.getElementById('mute')
+  volumeUp: document.getElementById('volume-up')
 };
 
 const applyConfig = (newConfig) => {
@@ -74,7 +76,6 @@ const applyConfig = (newConfig) => {
 
   elements.serverName.textContent = config.serverName;
   elements.serverSlogan.textContent = config.slogan;
-  elements.welcomeText.textContent = config.welcomeText;
   elements.discord.textContent = config.discord || '';
 
   elements.discord.style.display = config.discord ? 'inline-flex' : 'none';
@@ -95,6 +96,7 @@ const applyConfig = (newConfig) => {
 
   setupBackground();
   setupMusic();
+  updateTrackTitle();
   setupTips();
   setupParticles();
 };
@@ -186,6 +188,7 @@ const setupMusic = () => {
             event.target.setVolume(config.music.defaultVolume * 100);
             event.target.playVideo();
             event.target.unMute();
+            startTrackTimer();
           }
         }
       });
@@ -204,6 +207,47 @@ const setupLocalAudio = () => {
   document.body.appendChild(localAudio);
   localAudio.muted = false;
   localAudio.play().catch(() => {});
+  localAudio.addEventListener('loadedmetadata', () => {
+    updateTrackTime(localAudio.currentTime, localAudio.duration);
+  });
+  localAudio.addEventListener('timeupdate', () => {
+    updateTrackTime(localAudio.currentTime, localAudio.duration);
+  });
+};
+
+const startTrackTimer = () => {
+  setInterval(() => {
+    if (!musicPlayer) {
+      return;
+    }
+    const current = musicPlayer.getCurrentTime();
+    const duration = musicPlayer.getDuration();
+    updateTrackTime(current, duration);
+  }, 500);
+};
+
+const updateTrackTitle = () => {
+  const title = config.music.trackName || (config.music.useYoutube ? 'YouTube Audio' : 'Lokale Musik');
+  elements.trackTitle.textContent = title;
+};
+
+const updateTrackTime = (current, duration) => {
+  if (!duration || Number.isNaN(duration)) {
+    elements.trackTime.textContent = '0:00 / 0:00';
+    elements.trackSeek.value = 0;
+    return;
+  }
+
+  const currentText = formatTime(current);
+  const durationText = formatTime(duration);
+  elements.trackTime.textContent = `${currentText} / ${durationText}`;
+  elements.trackSeek.value = Math.min(100, Math.max(0, (current / duration) * 100));
+};
+
+const formatTime = (time) => {
+  const minutes = Math.floor(time / 60);
+  const seconds = Math.floor(time % 60);
+  return `${minutes}:${seconds.toString().padStart(2, '0')}`;
 };
 
 const setupTips = () => {
@@ -322,18 +366,18 @@ controls.volumeDown.addEventListener('click', () => {
   }
 });
 
-controls.mute.addEventListener('click', () => {
+elements.trackSeek.addEventListener('input', (event) => {
+  const percent = Number(event.target.value) / 100;
   if (musicPlayer) {
-    if (musicPlayer.isMuted()) {
-      musicPlayer.unMute();
-    } else {
-      musicPlayer.mute();
+    const duration = musicPlayer.getDuration();
+    if (duration) {
+      musicPlayer.seekTo(duration * percent, true);
     }
     return;
   }
 
-  if (localAudio) {
-    localAudio.muted = !localAudio.muted;
+  if (localAudio && localAudio.duration) {
+    localAudio.currentTime = localAudio.duration * percent;
   }
 });
 

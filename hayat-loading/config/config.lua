@@ -16,6 +16,7 @@ Config = {
     music = {
         useYoutube = true,
         youtubeUrl = 'https://www.youtube.com/watch?v=jfKfPfyJRdk',
+        trackName = 'Lofi Hip Hop Radio',
         localAudioPath = 'assets/music/loading.mp3',
         defaultVolume = 0.25
     },

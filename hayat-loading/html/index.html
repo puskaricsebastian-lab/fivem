@@ -26,7 +26,7 @@
 
     <section class="loading-area">
       <div class="progress-header">
-        <span id="progress-label">Lade Welt...</span>
+        <span id="progress-label">Laden</span>
         <span id="progress-value">0%</span>
       </div>
       <div class="progress-bar">
@@ -35,15 +35,15 @@
       <div id="loading-tip" class="loading-tip"></div>
     </section>
 
-    <section class="welcome-footer">
-      <p id="welcome-text">Willkommen in Hayat City — wir freuen uns, dass du da bist.</p>
-    </section>
-
     <section class="music-controls">
       <button class="control" id="play-pause" title="Play/Pause">⏯</button>
-      <button class="control" id="volume-down" title="Leiser">🔉</button>
-      <button class="control" id="volume-up" title="Lauter">🔊</button>
-      <button class="control" id="mute" title="Mute">🔇</button>
+      <button class="control" id="volume-down" title="Leiser">−</button>
+      <button class="control" id="volume-up" title="Lauter">+</button>
+      <div class="track-info">
+        <div class="track-title" id="track-title">Lädt Titel...</div>
+        <div class="track-time" id="track-time">0:00 / 0:00</div>
+        <input id="track-seek" class="track-seek" type="range" min="0" max="100" value="0" />
+      </div>
     </section>
   </main>
 

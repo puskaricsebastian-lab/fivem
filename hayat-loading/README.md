@@ -5,7 +5,7 @@
 2. In der `server.cfg` hinzufügen: `ensure hayat-loading`.
 
 ## Konfiguration (config/config.lua)
-- **Servername & Texte:** `serverName`, `slogan`, `welcomeText`, `loadingTips`.
+- **Servername & Texte:** `serverName`, `slogan`, `loadingTips`.
 - **Farben:** `themeColor`, `secondaryColor`, `accentGlow`.
 - **Hintergrundvideo:**
   - YouTube: `background.useYoutube = true` und `background.youtubeUrl` anpassen.
@@ -13,6 +13,7 @@
 - **Musik:**
   - YouTube: `music.useYoutube = true` und `music.youtubeUrl` anpassen.
   - Lokal: `music.useYoutube = false` und `music.localAudioPath` setzen (Datei nach `html/assets/music/`).
+  - Anzeigename: `music.trackName`.
   - Standard-Lautstärke: `music.defaultVolume` (0.0–1.0).
 - **Logo/Banner:**
   - `showLogo` + `logoFileName` (Datei in `html/assets/images/`).
