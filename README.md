@@ -27,37 +27,30 @@ A complete Manifest V3 Chrome extension that reads **visible content** from the 
 4. Select `chrome-ai-assistant/` directory.
 5. Pin extension and click icon once to open side panel.
 
-## API key/provider integration
+## Provider settings
 
 Supported providers:
 
-- OpenAI (`sk-...`)
-- Google Gemini (`AIza...`)
-- OpenAI-compatible providers (custom endpoint)
+- OpenAI
+- Google Gemini
 
-In Settings:
+Features:
 
-1. Choose provider.
-2. Enter API key.
-3. Enter model.
-4. (Optional) For **OpenAI-compatible**, set your custom chat completions URL.
-5. Save settings and run **Analyze Visible Page**.
+- Separate API keys per provider
+- Model dropdown (no manual model typing)
+- Dynamic model loading (`/v1/models` for OpenAI, `listModels` for Gemini)
+- Test Connection button
+- Auto-save for settings
+- Optional Advanced Mode for custom OpenAI endpoint only
 
-## Error explanations (short)
+## Error explanations
 
-The extension maps common API errors to clear messages:
+The extension maps common API errors to clearer messages, for example:
 
-- `400`: request format/model/endpoint invalid
-- `401`: API key invalid/unlicensed/no access
-- `403`: permission denied for model/project
-- `404`: endpoint or model not found
-- `408/504`: timeout
-- `409`: temporary conflict
-- `413`: request too large
-- `415`: unsupported content type
-- `422`: validation failed
-- `429`: rate-limit or quota exceeded
-- `5xx`: provider temporary/server error
+- "Das gewählte Modell gehört nicht zum Provider"
+- "Endpoint und Modell passen nicht zusammen"
+- "API-Key ungültig, unlizenziert oder abgelaufen"
+- "Rate-Limit oder Kontingent erreicht"
 
 ## Troubleshooting
 
