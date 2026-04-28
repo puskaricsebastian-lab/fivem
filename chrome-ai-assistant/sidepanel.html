@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>FocusSafe AI</title>
+    <link rel="stylesheet" href="sidepanel.css" />
+  </head>
+  <body>
+    <main>
+      <h1>FocusSafe AI</h1>
+      <p class="hint">Analyze only what is visible on the active tab. Runs in this side panel so your page stays in focus context.</p>
+
+      <section class="card">
+        <label for="prompt">What do you want help with?</label>
+        <textarea id="prompt" rows="3" placeholder="Example: Give me a quick summary and action items."></textarea>
+        <button id="analyzeBtn">Analyze Visible Page</button>
+      </section>
+
+      <section class="card">
+        <h2>AI Response</h2>
+        <pre id="output">No response yet.</pre>
+      </section>
+
+      <section class="card">
+        <h2>Settings</h2>
+        <label for="apiKey">API Key</label>
+        <input id="apiKey" type="password" placeholder="sk-..." autocomplete="off" />
+
+        <label for="model">Model</label>
+        <input id="model" type="text" placeholder="gpt-4o-mini" />
+
+        <label for="systemPrompt">System Prompt</label>
+        <textarea id="systemPrompt" rows="4"></textarea>
+
+        <button id="saveBtn" class="secondary">Save Settings</button>
+        <p id="status" class="status"></p>
+      </section>
+    </main>
+
+    <script type="module" src="sidepanel.js"></script>
+  </body>
+</html>
