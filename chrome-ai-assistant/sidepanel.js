@@ -1,16 +1,30 @@
 const ui = {
   prompt: document.getElementById("prompt"),
   analyzeBtn: document.getElementById("analyzeBtn"),
+  forgetBtn: document.getElementById("forgetBtn"),
   output: document.getElementById("output"),
   provider: document.getElementById("provider"),
   apiKey: document.getElementById("apiKey"),
   model: document.getElementById("model"),
-  testBtn: document.getElementById("testBtn"),
-  saveBtn: document.getElementById("saveBtn"),
+  scopeMode: document.getElementById("scopeMode"),
+  focusMode: document.getElementById("focusMode"),
+  memoryMode: document.getElementById("memoryMode"),
+  privacyPause: document.getElementById("privacyPause"),
+  privacyAccess: document.getElementById("privacyAccess"),
+  blockedDomains: document.getElementById("blockedDomains"),
   advancedMode: document.getElementById("advancedMode"),
   advancedBox: document.getElementById("advancedBox"),
   baseUrl: document.getElementById("baseUrl"),
   systemPrompt: document.getElementById("systemPrompt"),
+  testBtn: document.getElementById("testBtn"),
+  saveBtn: document.getElementById("saveBtn"),
+  showShort: document.getElementById("showShort"),
+  showDetailed: document.getElementById("showDetailed"),
+  showSteps: document.getElementById("showSteps"),
+  showCode: document.getElementById("showCode"),
+  contextRing: document.getElementById("contextRing"),
+  devMode: document.getElementById("devMode"),
+  debugLog: document.getElementById("debugLog"),
   status: document.getElementById("status")
 };
 
@@ -18,15 +32,28 @@ const state = {
   apiKeys: { openai: "", gemini: "" },
   modelsByProvider: { openai: [], gemini: [] },
   selectedModels: { openai: "gpt-4o-mini", gemini: "gemini-1.5-flash" },
-  customBaseUrls: { openai: "https://api.openai.com/v1/chat/completions", gemini: "https://generativelanguage.googleapis.com/v1beta" }
+  customBaseUrls: { openai: "https://api.openai.com/v1/chat/completions", gemini: "https://generativelanguage.googleapis.com/v1beta" },
+  lastResult: null,
+  debugLogs: []
 };
 
 let autoSaveTimer = null;
 
 init().catch((err) => setStatus(`Init failed: ${err.message}`, true));
 
+chrome.runtime.onMessage.addListener((message) => {
+  if (message?.type === "QUICK_ACTION_RESULT") {
+    state.lastResult = message.payload;
+    renderResponse("detailed");
+    renderContextRing(message.payload?.contextRing || {});
+    logDebug("Quick action response received.", message.payload);
+  }
+});
+
 ui.provider.addEventListener("change", async () => {
-  await onProviderChange();
+  ui.apiKey.value = state.apiKeys[currentProvider()] || "";
+  await loadModelsForProvider(currentProvider(), true);
+  toggleAdvancedUi();
   queueAutoSave();
 });
 
@@ -40,11 +67,16 @@ ui.model.addEventListener("change", () => {
   queueAutoSave();
 });
 
-ui.systemPrompt.addEventListener("input", queueAutoSave);
-ui.advancedMode.addEventListener("change", () => {
-  toggleAdvancedUi();
-  queueAutoSave();
+[ui.scopeMode, ui.focusMode, ui.memoryMode, ui.systemPrompt, ui.blockedDomains].forEach((el) => {
+  el.addEventListener("input", queueAutoSave);
 });
+[ui.privacyPause, ui.privacyAccess, ui.advancedMode].forEach((el) => {
+  el.addEventListener("change", () => {
+    toggleAdvancedUi();
+    queueAutoSave();
+  });
+});
+
 ui.baseUrl.addEventListener("input", () => {
   state.customBaseUrls.openai = ui.baseUrl.value.trim();
   queueAutoSave();
@@ -53,53 +85,16 @@ ui.baseUrl.addEventListener("input", () => {
 ui.testBtn.addEventListener("click", async () => {
   try {
     setStatus("Testing API key...");
-    const provider = currentProvider();
-    const apiKey = ui.apiKey.value.trim();
-    const response = await chrome.runtime.sendMessage({ type: "TEST_API_KEY", payload: { provider, apiKey } });
-
-    if (!response?.ok) {
-      throw new Error(response?.error || "Connection test failed");
-    }
-
-    setStatus(`${response.result.message} (${response.result.modelsCount} Modelle gefunden)`);
-    await loadModelsForProvider(provider, true);
-  } catch (error) {
-    setStatus(error.message || "Connection test failed", true);
-  }
-});
-
-ui.analyzeBtn.addEventListener("click", async () => {
-  setStatus("Collecting visible content from active tab...");
-  ui.output.textContent = "Thinking...";
-
-  try {
-    const tab = await getActiveTab();
-    const contentResponse = await collectVisibleContent(tab);
-
-    if (!contentResponse?.ok) {
-      throw new Error("Could not read visible content from this tab.");
-    }
-
-    await saveSettings();
-
-    const aiResponse = await chrome.runtime.sendMessage({
-      type: "AI_ANALYZE_VISIBLE_CONTENT",
-      payload: {
-        ...contentResponse.payload,
-        userPrompt: ui.prompt.value.trim()
-      }
+    const response = await chrome.runtime.sendMessage({
+      type: "TEST_API_KEY",
+      payload: { provider: currentProvider(), apiKey: ui.apiKey.value.trim() }
     });
 
-    if (!aiResponse?.ok) {
-      throw new Error(aiResponse?.error || "Unknown AI error");
-    }
-
-    const { text, model, provider, generatedAt } = aiResponse.result;
-    ui.output.textContent = `${text}\n\n— ${provider}/${model} @ ${new Date(generatedAt).toLocaleTimeString()}`;
-    setStatus("Done. The page remained active while AI ran in the side panel.");
+    if (!response?.ok) throw new Error(response?.error || "Connection failed");
+    setStatus(`${response.result.message} (${response.result.modelsCount} Modelle gefunden)`);
+    await loadModelsForProvider(currentProvider(), true);
   } catch (error) {
-    ui.output.textContent = "No response.";
-    setStatus(error.message || "Failed to analyze page", true);
+    setStatus(error.message || "Connection failed", true);
   }
 });
 
@@ -112,42 +107,89 @@ ui.saveBtn.addEventListener("click", async () => {
   }
 });
 
+ui.analyzeBtn.addEventListener("click", async () => {
+  setStatus("Collecting visible content...");
+  try {
+    const tab = await getActiveTab();
+    const contentResponse = await collectVisibleContent(tab);
+    if (!contentResponse?.ok) throw new Error("Could not read page content.");
+
+    await saveSettings();
+    const aiResponse = await chrome.runtime.sendMessage({
+      type: "AI_ANALYZE_VISIBLE_CONTENT",
+      payload: {
+        ...contentResponse.payload,
+        userPrompt: ui.prompt.value.trim()
+      }
+    });
+
+    if (!aiResponse?.ok) throw new Error(aiResponse?.error || "Unknown AI error");
+
+    state.lastResult = aiResponse.result;
+    renderResponse("detailed");
+    renderContextRing(aiResponse.result.contextRing || {});
+    setStatus("Done.");
+    logDebug("Analyze response", aiResponse.result);
+  } catch (error) {
+    setStatus(error.message || "Analyze failed", true);
+  }
+});
+
+ui.forgetBtn.addEventListener("click", async () => {
+  const tab = await getActiveTab();
+  const url = tab.url || "";
+  await chrome.runtime.sendMessage({ type: "FORGET_PAGE", payload: { url } });
+  setStatus("Diese Seite wurde aus Memory entfernt.");
+});
+
+ui.showShort.addEventListener("click", () => renderResponse("short"));
+ui.showDetailed.addEventListener("click", () => renderResponse("detailed"));
+ui.showSteps.addEventListener("click", () => renderResponse("steps"));
+ui.showCode.addEventListener("click", () => renderResponse("code"));
+ui.devMode.addEventListener("change", () => {
+  ui.debugLog.classList.toggle("hidden", !ui.devMode.checked);
+  if (ui.devMode.checked) ui.debugLog.textContent = state.debugLogs.join("\n\n") || "No logs yet.";
+});
+
 async function init() {
   const response = await chrome.runtime.sendMessage({ type: "GET_API_SETTINGS" });
-  if (!response?.ok) {
-    throw new Error(response?.error || "Unable to load settings");
-  }
+  if (!response?.ok) throw new Error(response?.error || "Unable to load settings");
 
-  const { provider, apiKeys, models, customBaseUrls, systemPrompt, advancedMode } = response.settings;
-  state.apiKeys = { ...state.apiKeys, ...(apiKeys || {}) };
-  state.selectedModels = { ...state.selectedModels, ...(models || {}) };
-  state.customBaseUrls = { ...state.customBaseUrls, ...(customBaseUrls || {}) };
+  const s = response.settings;
+  state.apiKeys = { ...state.apiKeys, ...(s.apiKeys || {}) };
+  state.selectedModels = { ...state.selectedModels, ...(s.models || {}) };
+  state.customBaseUrls = { ...state.customBaseUrls, ...(s.customBaseUrls || {}) };
 
-  ui.provider.value = provider || "openai";
+  ui.provider.value = s.provider || "openai";
   ui.apiKey.value = state.apiKeys[currentProvider()] || "";
-  ui.systemPrompt.value = systemPrompt || "";
-  ui.advancedMode.checked = Boolean(advancedMode);
+  ui.scopeMode.value = s.scopeMode || "tab";
+  ui.focusMode.value = s.focusMode || "assist";
+  ui.memoryMode.value = s.memory?.mode || "session";
+  ui.privacyPause.checked = Boolean(s.privacy?.paused);
+  ui.privacyAccess.value = s.privacy?.access || "tab";
+  ui.blockedDomains.value = (s.privacy?.blockedDomains || []).join(", ");
+  ui.advancedMode.checked = Boolean(s.advancedMode);
   ui.baseUrl.value = state.customBaseUrls.openai || "https://api.openai.com/v1/chat/completions";
+  ui.systemPrompt.value = s.systemPrompt || "";
 
   toggleAdvancedUi();
   await loadModelsForProvider(currentProvider(), false);
-}
 
-async function onProviderChange() {
-  const provider = currentProvider();
-  ui.apiKey.value = state.apiKeys[provider] || "";
-  await loadModelsForProvider(provider, false);
+  const local = await chrome.storage.local.get(["lastQuickActionResult"]);
+  if (local.lastQuickActionResult) {
+    state.lastResult = local.lastQuickActionResult;
+    renderResponse("detailed");
+    renderContextRing(local.lastQuickActionResult.contextRing || {});
+  }
 }
 
 async function loadModelsForProvider(provider, forceReload) {
   const apiKey = (state.apiKeys[provider] || "").trim();
-
   if (!apiKey) {
-    const defaultModel = provider === "gemini" ? "gemini-1.5-flash" : "gpt-4o-mini";
-    state.modelsByProvider[provider] = [defaultModel];
-    state.selectedModels[provider] = defaultModel;
+    const fallback = provider === "gemini" ? "gemini-1.5-flash" : "gpt-4o-mini";
+    state.modelsByProvider[provider] = [fallback];
+    state.selectedModels[provider] = fallback;
     renderModelOptions(provider);
-    setStatus(`Bitte API-Key für ${provider.toUpperCase()} eintragen, um echte Modelle zu laden.`, true);
     return;
   }
 
@@ -156,43 +198,25 @@ async function loadModelsForProvider(provider, forceReload) {
     return;
   }
 
-  setStatus(`Lade Modelle für ${provider.toUpperCase()}...`);
   const response = await chrome.runtime.sendMessage({ type: "LIST_MODELS", payload: { provider, apiKey } });
-  if (!response?.ok) {
-    throw new Error(response?.error || "Model list could not be loaded.");
-  }
+  if (!response?.ok) throw new Error(response?.error || "Model loading failed");
 
   const models = response.models || [];
-  if (!models.length) {
-    throw new Error("Keine gültigen Modelle vom Provider zurückgegeben.");
-  }
-
+  if (!models.length) throw new Error("Keine Modelle gefunden.");
   state.modelsByProvider[provider] = models;
-  const previousModel = state.selectedModels[provider];
-  state.selectedModels[provider] = models.includes(previousModel) ? previousModel : models[0];
-
+  state.selectedModels[provider] = models.includes(state.selectedModels[provider]) ? state.selectedModels[provider] : models[0];
   renderModelOptions(provider);
-  setStatus(`Modelle geladen (${models.length}).`);
 }
 
 function renderModelOptions(provider) {
-  const models = state.modelsByProvider[provider] || [];
-  const selected = state.selectedModels[provider];
-
   ui.model.innerHTML = "";
-  for (const model of models) {
+  for (const m of state.modelsByProvider[provider] || []) {
     const option = document.createElement("option");
-    option.value = model;
-    option.textContent = model;
+    option.value = m;
+    option.textContent = m;
     ui.model.appendChild(option);
   }
-
-  if (models.includes(selected)) {
-    ui.model.value = selected;
-  } else if (models.length) {
-    ui.model.value = models[0];
-    state.selectedModels[provider] = models[0];
-  }
+  ui.model.value = state.selectedModels[provider] || ui.model.options[0]?.value || "";
 }
 
 async function saveSettings() {
@@ -201,26 +225,42 @@ async function saveSettings() {
   state.selectedModels[provider] = ui.model.value;
   state.customBaseUrls.openai = ui.baseUrl.value.trim();
 
-  const response = await chrome.runtime.sendMessage({
-    type: "SAVE_API_SETTINGS",
-    payload: {
-      provider,
-      apiKeys: state.apiKeys,
-      models: state.selectedModels,
-      customBaseUrls: state.customBaseUrls,
-      advancedMode: ui.advancedMode.checked,
-      systemPrompt: ui.systemPrompt.value
-    }
-  });
+  const payload = {
+    provider,
+    apiKeys: state.apiKeys,
+    models: state.selectedModels,
+    customBaseUrls: state.customBaseUrls,
+    advancedMode: ui.advancedMode.checked,
+    systemPrompt: ui.systemPrompt.value,
+    scopeMode: ui.scopeMode.value,
+    focusMode: ui.focusMode.value,
+    privacy: {
+      paused: ui.privacyPause.checked,
+      access: ui.privacyAccess.value,
+      blockedDomains: ui.blockedDomains.value.split(",").map((x) => x.trim()).filter(Boolean)
+    },
+    memory: { mode: ui.memoryMode.value }
+  };
 
-  if (!response?.ok) {
-    throw new Error(response?.error || "Could not save settings");
-  }
+  const response = await chrome.runtime.sendMessage({ type: "SAVE_API_SETTINGS", payload });
+  if (!response?.ok) throw new Error(response?.error || "Could not save settings");
 }
 
 function toggleAdvancedUi() {
-  const shouldShow = ui.advancedMode.checked && currentProvider() === "openai";
-  ui.advancedBox.classList.toggle("hidden", !shouldShow);
+  const show = ui.advancedMode.checked && currentProvider() === "openai";
+  ui.advancedBox.classList.toggle("hidden", !show);
+}
+
+function renderResponse(mode) {
+  if (!state.lastResult) {
+    ui.output.textContent = "No response yet.";
+    return;
+  }
+  ui.output.textContent = state.lastResult[mode] || state.lastResult.text || "No response.";
+}
+
+function renderContextRing(ring) {
+  ui.contextRing.textContent = JSON.stringify(ring, null, 2);
 }
 
 function queueAutoSave() {
@@ -229,7 +269,7 @@ function queueAutoSave() {
     try {
       await saveSettings();
     } catch {
-      // silent autosave errors; explicit save/test shows visible errors
+      // ignore autosave errors
     }
   }, 600);
 }
@@ -240,51 +280,27 @@ function currentProvider() {
 
 async function getActiveTab() {
   const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
-  if (!tabs.length || !tabs[0].id) {
-    throw new Error("No active tab found.");
-  }
-
+  if (!tabs.length || !tabs[0].id) throw new Error("No active tab found.");
   return tabs[0];
 }
 
 async function collectVisibleContent(tab) {
-  if (!isScriptableUrl(tab.url || "")) {
-    throw new Error("This tab cannot be analyzed (e.g. chrome://, extension pages, or Chrome Web Store).");
-  }
-
   try {
     return await chrome.tabs.sendMessage(tab.id, { type: "COLLECT_VISIBLE_CONTENT" });
-  } catch (error) {
-    const errorMessage = String(error?.message || error);
-    const noReceiver =
-      errorMessage.includes("Receiving end does not exist") ||
-      errorMessage.includes("Could not establish connection");
-
-    if (!noReceiver) {
-      throw error;
-    }
-
-    await chrome.scripting.executeScript({
-      target: { tabId: tab.id },
-      files: ["content-script.js"]
-    });
-
+  } catch {
+    await chrome.scripting.executeScript({ target: { tabId: tab.id }, files: ["content-script.js"] });
     return chrome.tabs.sendMessage(tab.id, { type: "COLLECT_VISIBLE_CONTENT" });
   }
-}
-
-function isScriptableUrl(url) {
-  if (!url) return false;
-
-  const blockedPrefixes = ["chrome://", "chrome-extension://", "edge://", "about:"];
-  if (blockedPrefixes.some((prefix) => url.startsWith(prefix))) {
-    return false;
-  }
-
-  return !url.includes("chrome.google.com/webstore");
 }
 
 function setStatus(message, isError = false) {
   ui.status.textContent = message;
   ui.status.style.color = isError ? "#fca5a5" : "#86efac";
+}
+
+function logDebug(label, obj) {
+  const line = `[${new Date().toISOString()}] ${label}\n${JSON.stringify(obj || {}, null, 2)}`;
+  state.debugLogs.push(line);
+  state.debugLogs = state.debugLogs.slice(-20);
+  if (ui.devMode.checked) ui.debugLog.textContent = state.debugLogs.join("\n\n");
 }

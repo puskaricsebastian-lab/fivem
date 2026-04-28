@@ -2,17 +2,19 @@
   "manifest_version": 3,
   "name": "FocusSafe AI Page Assistant",
   "description": "Reads visible page content and provides AI assistance in a side panel without stealing page focus.",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "permissions": [
     "activeTab",
     "scripting",
     "storage",
     "sidePanel",
-    "tabs"
+    "tabs",
+    "contextMenus"
   ],
   "host_permissions": [
     "<all_urls>",
-    "https://api.openai.com/*"
+    "https://api.openai.com/*",
+    "https://generativelanguage.googleapis.com/*"
   ],
   "background": {
     "service_worker": "background.js",
@@ -20,6 +22,26 @@
   },
   "action": {
     "default_title": "FocusSafe AI"
+  },
+  "commands": {
+    "toggle_assistant": {
+      "suggested_key": {
+        "default": "Alt+A"
+      },
+      "description": "Open AI side panel"
+    },
+    "analyze_selection": {
+      "suggested_key": {
+        "default": "Alt+D"
+      },
+      "description": "Analyze selected text"
+    },
+    "capture_and_analyze": {
+      "suggested_key": {
+        "default": "Alt+S"
+      },
+      "description": "Capture visible tab and analyze"
+    }
   },
   "side_panel": {
     "default_path": "sidepanel.html"
