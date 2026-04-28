@@ -45,3 +45,12 @@ A complete Manifest V3 Chrome extension that reads **visible content** from the 
 
 - API key is stored in Chrome extension synced storage for demo convenience.
 - For production, proxy API calls through your backend to avoid exposing provider keys client-side.
+
+## Troubleshooting
+
+If you see `Could not establish connection. Receiving end does not exist.`:
+
+- The active tab is often a non-scriptable page (`chrome://*`, extension pages, Chrome Web Store), or
+- the content script was not attached yet (for example right after extension reload).
+
+This project now retries by programmatically injecting `content-script.js` once on supported tabs.

@@ -17,7 +17,7 @@ ui.analyzeBtn.addEventListener("click", async () => {
 
   try {
     const tab = await getActiveTab();
-    const contentResponse = await chrome.tabs.sendMessage(tab.id, { type: "COLLECT_VISIBLE_CONTENT" });
+    const contentResponse = await collectVisibleContent(tab);
 
     if (!contentResponse?.ok) {
       throw new Error("Could not read visible content from this tab.");
@@ -84,6 +84,43 @@ async function getActiveTab() {
   }
 
   return tabs[0];
+}
+
+async function collectVisibleContent(tab) {
+  if (!isScriptableUrl(tab.url || "")) {
+    throw new Error("This tab cannot be analyzed (e.g. chrome://, extension pages, or Chrome Web Store).");
+  }
+
+  try {
+    return await chrome.tabs.sendMessage(tab.id, { type: "COLLECT_VISIBLE_CONTENT" });
+  } catch (error) {
+    const errorMessage = String(error?.message || error);
+    const noReceiver =
+      errorMessage.includes("Receiving end does not exist") ||
+      errorMessage.includes("Could not establish connection");
+
+    if (!noReceiver) {
+      throw error;
+    }
+
+    await chrome.scripting.executeScript({
+      target: { tabId: tab.id },
+      files: ["content-script.js"]
+    });
+
+    return chrome.tabs.sendMessage(tab.id, { type: "COLLECT_VISIBLE_CONTENT" });
+  }
+}
+
+function isScriptableUrl(url) {
+  if (!url) return false;
+
+  const blockedPrefixes = ["chrome://", "chrome-extension://", "edge://", "about:"];
+  if (blockedPrefixes.some((prefix) => url.startsWith(prefix))) {
+    return false;
+  }
+
+  return !url.includes("chrome.google.com/webstore");
 }
 
 function setStatus(message, isError = false) {
