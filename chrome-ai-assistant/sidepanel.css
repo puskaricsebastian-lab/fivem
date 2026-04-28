@@ -42,6 +42,7 @@ h2 {
 
 textarea,
 input,
+select,
 button {
   width: 100%;
   box-sizing: border-box;
@@ -79,4 +80,15 @@ pre {
   margin: 0;
   font-size: 0.85rem;
   color: #cbd5e1;
+}
+
+
+.support a {
+  color: #93c5fd;
+  text-decoration: none;
+  font-size: 0.9rem;
+}
+
+.support a:hover {
+  text-decoration: underline;
 }

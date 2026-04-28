@@ -27,24 +27,37 @@ A complete Manifest V3 Chrome extension that reads **visible content** from the 
 4. Select `chrome-ai-assistant/` directory.
 5. Pin extension and click icon once to open side panel.
 
-## API key integration
+## API key/provider integration
 
-1. Open side panel.
-2. In **Settings**, paste your AI API key.
-3. Optionally set model (default: `gpt-4o-mini`) and system prompt.
-4. Click **Save Settings** (stored via `chrome.storage.sync`).
-5. Click **Analyze Visible Page** to run.
+Supported providers:
 
-## AI backend notes
+- OpenAI (`sk-...`)
+- Google Gemini (`AIza...`)
+- OpenAI-compatible providers (custom endpoint)
 
-- Background script currently calls OpenAI-compatible endpoint:
-  - `POST https://api.openai.com/v1/chat/completions`
-- To use Gemini or another provider, replace fetch call in `background.js` while keeping message flow intact.
+In Settings:
 
-## Security notes
+1. Choose provider.
+2. Enter API key.
+3. Enter model.
+4. (Optional) For **OpenAI-compatible**, set your custom chat completions URL.
+5. Save settings and run **Analyze Visible Page**.
 
-- API key is stored in Chrome extension synced storage for demo convenience.
-- For production, proxy API calls through your backend to avoid exposing provider keys client-side.
+## Error explanations (short)
+
+The extension maps common API errors to clear messages:
+
+- `400`: request format/model/endpoint invalid
+- `401`: API key invalid/unlicensed/no access
+- `403`: permission denied for model/project
+- `404`: endpoint or model not found
+- `408/504`: timeout
+- `409`: temporary conflict
+- `413`: request too large
+- `415`: unsupported content type
+- `422`: validation failed
+- `429`: rate-limit or quota exceeded
+- `5xx`: provider temporary/server error
 
 ## Troubleshooting
 
@@ -53,7 +66,12 @@ If you see `Could not establish connection. Receiving end does not exist.`:
 - The active tab is often a non-scriptable page (`chrome://*`, extension pages, Chrome Web Store), or
 - the content script was not attached yet (for example right after extension reload).
 
-This project now retries by programmatically injecting `content-script.js` once on supported tabs.
+This project retries by programmatically injecting `content-script.js` once on supported tabs.
 
-- If you see `AI quota reached (429/insufficient_quota)`, your provider account has no remaining quota or billing is disabled.
-  Update billing/quota in your provider dashboard, or use a different API key/model in extension settings.
+## Support
+
+Discord profile:
+
+- Username: `brezxxx.`
+- User ID: `1359978831070625875`
+- Link: https://discord.com/users/1359978831070625875

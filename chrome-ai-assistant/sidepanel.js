@@ -2,14 +2,20 @@ const ui = {
   prompt: document.getElementById("prompt"),
   analyzeBtn: document.getElementById("analyzeBtn"),
   output: document.getElementById("output"),
+  provider: document.getElementById("provider"),
   apiKey: document.getElementById("apiKey"),
   model: document.getElementById("model"),
+  baseUrl: document.getElementById("baseUrl"),
   systemPrompt: document.getElementById("systemPrompt"),
   saveBtn: document.getElementById("saveBtn"),
   status: document.getElementById("status")
 };
 
 init().catch((err) => setStatus(`Init failed: ${err.message}`, true));
+
+ui.provider.addEventListener("change", () => {
+  applyProviderHints(ui.provider.value);
+});
 
 ui.analyzeBtn.addEventListener("click", async () => {
   setStatus("Collecting visible content from active tab...");
@@ -35,8 +41,8 @@ ui.analyzeBtn.addEventListener("click", async () => {
       throw new Error(aiResponse?.error || "Unknown AI error");
     }
 
-    const { text, model, generatedAt } = aiResponse.result;
-    ui.output.textContent = `${text}\n\n— ${model} @ ${new Date(generatedAt).toLocaleTimeString()}`;
+    const { text, model, provider, generatedAt } = aiResponse.result;
+    ui.output.textContent = `${text}\n\n— ${provider}/${model} @ ${new Date(generatedAt).toLocaleTimeString()}`;
     setStatus("Done. The page remained active while AI ran in the side panel.");
   } catch (error) {
     ui.output.textContent = "No response.";
@@ -49,8 +55,10 @@ ui.saveBtn.addEventListener("click", async () => {
     const response = await chrome.runtime.sendMessage({
       type: "SAVE_API_SETTINGS",
       payload: {
+        provider: ui.provider.value,
         apiKey: ui.apiKey.value,
         model: ui.model.value,
+        baseUrl: ui.baseUrl.value,
         systemPrompt: ui.systemPrompt.value
       }
     });
@@ -71,10 +79,32 @@ async function init() {
     throw new Error(response?.error || "Unable to load settings");
   }
 
-  const { apiKey, model, systemPrompt } = response.settings;
+  const { provider, apiKey, model, baseUrl, systemPrompt } = response.settings;
+  ui.provider.value = provider || "openai";
   ui.apiKey.value = apiKey || "";
   ui.model.value = model || "";
+  ui.baseUrl.value = baseUrl || "https://api.openai.com/v1/chat/completions";
   ui.systemPrompt.value = systemPrompt || "";
+  applyProviderHints(ui.provider.value);
+}
+
+function applyProviderHints(provider) {
+  if (provider === "gemini") {
+    ui.model.placeholder = "gemini-1.5-flash";
+    ui.baseUrl.disabled = true;
+    ui.baseUrl.title = "Für Gemini wird der Google-Endpoint automatisch verwendet.";
+    return;
+  }
+
+  ui.baseUrl.disabled = false;
+  ui.baseUrl.title = "Nur für OpenAI/OpenAI-compatible verwendet.";
+  if (provider === "openai_compatible") {
+    ui.model.placeholder = "your-model-name";
+    ui.baseUrl.placeholder = "https://your-provider/v1/chat/completions";
+  } else {
+    ui.model.placeholder = "gpt-4o-mini";
+    ui.baseUrl.placeholder = "https://api.openai.com/v1/chat/completions";
+  }
 }
 
 async function getActiveTab() {
