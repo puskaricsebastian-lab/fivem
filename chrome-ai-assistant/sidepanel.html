@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>FocusSafe AI</title>
+    <link rel="stylesheet" href="sidepanel.css" />
+  </head>
+  <body>
+    <main>
+      <h1>FocusSafe AI</h1>
+      <p class="hint">Alt+A öffnen, Alt+S Screenshot-Analyse, Alt+D Auswahl erklären.</p>
+
+      <section class="card">
+        <label for="prompt">Prompt</label>
+        <textarea id="prompt" rows="3" placeholder="Was soll die KI tun?"></textarea>
+        <div class="inline-actions">
+          <button id="analyzeBtn">Analyze</button>
+          <button id="forgetBtn" class="secondary">Forget this page</button>
+        </div>
+      </section>
+
+      <section class="card">
+        <h2>Response Mode</h2>
+        <div class="inline-actions response-switch">
+          <button id="showShort" class="secondary">Kurz</button>
+          <button id="showDetailed" class="secondary">Detail</button>
+          <button id="showSteps" class="secondary">Schritte</button>
+          <button id="showCode" class="secondary">Code</button>
+        </div>
+        <pre id="output">No response yet.</pre>
+      </section>
+
+      <section class="card">
+        <h2>Settings</h2>
+        <label for="provider">Provider</label>
+        <p class="field-help">Welcher KI-Dienst genutzt wird.</p>
+        <select id="provider"><option value="openai">OpenAI</option><option value="gemini">Google Gemini</option></select>
+
+        <label for="apiKey">API Key</label>
+        <p class="field-help">Persönlicher Zugriffsschlüssel.</p>
+        <input id="apiKey" type="password" placeholder="sk-... / AIza..." autocomplete="off" />
+
+        <label for="model">Model</label>
+        <p class="field-help">Beeinflusst Geschwindigkeit und Qualität.</p>
+        <select id="model"></select>
+
+        <label for="scopeMode">Scope / Context Mode</label>
+        <select id="scopeMode">
+          <option value="chat">🧠 Nur Chat</option>
+          <option value="tab">🌐 Aktueller Tab</option>
+          <option value="screen">🪟 Ganzer Bildschirm (sichtbarer Bereich)</option>
+          <option value="region">📄 Ausgewählter Bereich</option>
+        </select>
+
+        <label for="focusMode">Focus Mode</label>
+        <select id="focusMode">
+          <option value="focus">🎯 Focus Mode</option>
+          <option value="silent">🧘 Silent Mode</option>
+          <option value="assist">⚡ Assist Mode</option>
+        </select>
+
+        <label for="memoryMode">Memory</label>
+        <select id="memoryMode">
+          <option value="off">Aus</option>
+          <option value="session">Nur Session</option>
+          <option value="persistent">Projekt-Memory</option>
+        </select>
+
+        <label class="checkbox"><input id="privacyPause" type="checkbox" /> 🔴 Pause KI Zugriff</label>
+        <label for="privacyAccess">Privacy Access</label>
+        <select id="privacyAccess"><option value="tab">🟡 Nur aktueller Tab</option><option value="full">🟢 Vollzugriff</option></select>
+
+        <label for="blockedDomains">Blockierte Seiten (comma-separated)</label>
+        <input id="blockedDomains" type="text" placeholder="bank.com, paypal.com" />
+
+        <label class="checkbox"><input id="advancedMode" type="checkbox" /> Advanced Mode (OpenAI URL)</label>
+        <div id="advancedBox" class="advanced hidden">
+          <label for="baseUrl">OpenAI Base URL</label>
+          <input id="baseUrl" type="text" placeholder="https://api.openai.com/v1/chat/completions" />
+        </div>
+
+        <label for="systemPrompt">System Prompt</label>
+        <textarea id="systemPrompt" rows="3"></textarea>
+
+        <div class="inline-actions">
+          <button id="testBtn" class="secondary">Test Connection</button>
+          <button id="saveBtn" class="secondary">Save</button>
+        </div>
+        <p id="status" class="status"></p>
+      </section>
+
+      <section class="card">
+        <h2>Context Ring</h2>
+        <pre id="contextRing">Noch kein Kontext.</pre>
+      </section>
+
+      <section class="card">
+        <h2>Dev Mode</h2>
+        <label class="checkbox"><input id="devMode" type="checkbox" /> Debug anzeigen</label>
+        <pre id="debugLog" class="hidden">Dev logs hidden.</pre>
+      </section>
+
+      <section class="card support">
+        <h2>Support</h2>
+        <a href="https://discord.com/users/1359978831070625875" target="_blank" rel="noreferrer">brezxxx. (ID: 1359978831070625875)</a>
+      </section>
+    </main>
+
+    <script type="module" src="sidepanel.js"></script>
+  </body>
+</html>
