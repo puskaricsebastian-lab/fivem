@@ -111,8 +111,7 @@ async function handleAnalyzeVisibleContent(message) {
   });
 
   if (!response.ok) {
-    const errorText = await response.text();
-    throw new Error(`AI API error (${response.status}): ${errorText.slice(0, 400)}`);
+    throw await buildApiError(response);
   }
 
   const data = await response.json();
@@ -127,6 +126,37 @@ async function handleAnalyzeVisibleContent(message) {
     model: body.model,
     generatedAt: new Date().toISOString()
   };
+}
+
+async function buildApiError(response) {
+  const raw = await response.text();
+  let parsed;
+
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    parsed = null;
+  }
+
+  const apiMessage = parsed?.error?.message || "Unknown API error";
+  const apiCode = parsed?.error?.code || "";
+
+  if (response.status === 429 || apiCode === "insufficient_quota") {
+    return new Error(
+      "AI quota reached (429/insufficient_quota). Check your provider billing/quota, then retry. " +
+        "You can also switch to a different API key/model in Settings."
+    );
+  }
+
+  if (response.status === 401) {
+    return new Error("Unauthorized (401). Your API key is invalid, expired, or lacks access to the selected model.");
+  }
+
+  if (response.status === 403) {
+    return new Error("Forbidden (403). Your account may not have permission for this model or endpoint.");
+  }
+
+  return new Error(`AI API error (${response.status}): ${apiMessage.slice(0, 300)}`);
 }
 
 function defaultSystemPrompt() {

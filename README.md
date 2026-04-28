@@ -54,3 +54,6 @@ If you see `Could not establish connection. Receiving end does not exist.`:
 - the content script was not attached yet (for example right after extension reload).
 
 This project now retries by programmatically injecting `content-script.js` once on supported tabs.
+
+- If you see `AI quota reached (429/insufficient_quota)`, your provider account has no remaining quota or billing is disabled.
+  Update billing/quota in your provider dashboard, or use a different API key/model in extension settings.
