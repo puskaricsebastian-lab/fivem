@@ -161,6 +161,12 @@
 
     function clearTerminal() { terminal.innerHTML = ""; }
 
+    function focusInput() {
+      if (document.activeElement !== input) {
+        input.focus();
+      }
+    }
+
     async function sha256Hex(inputText) {
       const hash = await crypto.subtle.digest("SHA-256", enc.encode(inputText));
       return [...new Uint8Array(hash)].map(b => b.toString(16).padStart(2, "0")).join("");
@@ -388,11 +394,8 @@
       setTimeout(() => { if (matrixInterval) { clearInterval(matrixInterval); matrixInterval = null; writeLine("[MATRIX] auto-stop nach 10s."); } }, 10000);
     }
 
-    input.addEventListener("keydown", async (e) => {
-      if (e.key !== "Enter") return;
-      const raw = input.value;
+    async function processCommand(raw) {
       const cmd = raw.trim();
-      input.value = "";
       if (!cmd && !pendingAction) return;
       writeLine(`>>> ${raw}`);
 
@@ -414,9 +417,29 @@
 
       if (inPasswordManager) return handleManager(cmd);
       return handleMain(cmd.toLowerCase());
+    }
+
+    input.addEventListener("keydown", async (e) => {
+      if (e.key !== "Enter") return;
+      const raw = input.value;
+      input.value = "";
+      await processCommand(raw);
     });
 
-    start();
+    document.addEventListener("click", () => focusInput());
+    document.addEventListener("keydown", (e) => {
+      const isTypingKey = e.key.length === 1 || ["Backspace", "Delete"].includes(e.key);
+      if (document.activeElement !== input && isTypingKey) {
+        focusInput();
+      }
+    });
+
+    window.addEventListener("load", () => {
+      focusInput();
+      setTimeout(focusInput, 120);
+    });
+
+    start().then(() => focusInput());
   </script>
 </body>
 </html>
