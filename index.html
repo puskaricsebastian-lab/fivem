@@ -1,0 +1,422 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Breeez Terminal Suite</title>
+  <style>
+    :root {
+      --bg: #000;
+      --fg: #ff0000;
+      --dim: #b10000;
+      --panel: rgba(0, 0, 0, 0.78);
+    }
+    * { box-sizing: border-box; }
+    html, body { height: 100%; margin: 0; }
+    body {
+      font-family: "Courier New", Courier, monospace;
+      background: var(--bg);
+      color: var(--fg);
+      overflow: hidden;
+    }
+    #app {
+      position: relative;
+      height: 100%;
+      width: 100%;
+      display: grid;
+      grid-template-rows: auto 1fr auto;
+      background: radial-gradient(circle at center, #060000 0%, #000 70%);
+    }
+    .hero {
+      position: absolute;
+      inset: 0;
+      background-image: linear-gradient(to bottom, rgba(0,0,0,.35), rgba(0,0,0,.8)), url('fsociety.png');
+      background-size: cover;
+      background-position: center;
+      opacity: .23;
+      filter: grayscale(1) contrast(1.2);
+      pointer-events: none;
+    }
+    .scanlines::before {
+      content: "";
+      position: absolute;
+      inset: 0;
+      background: repeating-linear-gradient(to bottom, rgba(255, 0, 0, 0.04), rgba(255, 0, 0, 0.04) 1px, transparent 1px, transparent 3px);
+      mix-blend-mode: screen;
+      pointer-events: none;
+      z-index: 2;
+    }
+    .header {
+      z-index: 3;
+      padding: 8px 14px;
+      border-bottom: 1px solid var(--dim);
+      text-shadow: 0 0 6px rgba(255,0,0,.7);
+      animation: glitch 5s infinite;
+      background: rgba(0,0,0,.75);
+    }
+    .terminal {
+      z-index: 3;
+      padding: 12px 14px;
+      overflow-y: auto;
+      white-space: pre-wrap;
+      line-height: 1.35;
+      scrollbar-color: var(--dim) #000;
+    }
+    .input-wrap {
+      z-index: 3;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      border-top: 1px solid var(--dim);
+      padding: 10px 14px;
+      background: rgba(0,0,0,.85);
+    }
+    .prompt { user-select: none; }
+    #cmd {
+      width: 100%;
+      background: transparent;
+      border: none;
+      color: var(--fg);
+      font: inherit;
+      outline: none;
+      caret-color: var(--fg);
+    }
+    .cursor {
+      display: inline-block;
+      width: 10px;
+      height: 1em;
+      vertical-align: text-bottom;
+      background: var(--fg);
+      margin-left: 3px;
+      animation: blink 1s step-end infinite;
+    }
+    .copy-btn {
+      margin-left: 10px;
+      color: #000;
+      background: var(--fg);
+      border: 1px solid var(--fg);
+      font: inherit;
+      cursor: pointer;
+      padding: 0 6px;
+    }
+    @keyframes blink { 50% { opacity: 0; } }
+    @keyframes glitch {
+      0%, 95%, 100% { transform: translate(0); }
+      96% { transform: translate(-1px, 0); }
+      97% { transform: translate(1px, 0); }
+      98% { transform: translate(-1px, 0); }
+      99% { transform: translate(1px, 0); }
+    }
+  </style>
+</head>
+<body>
+  <div id="app" class="scanlines">
+    <div class="hero" aria-hidden="true"></div>
+    <div class="header" id="header">:: BREEEZ LOCAL TERMINAL SUITE v1.0 ::</div>
+    <main class="terminal" id="terminal"></main>
+    <div class="input-wrap">
+      <span class="prompt">&gt;&gt;&gt;</span>
+      <input id="cmd" type="text" autocomplete="off" spellcheck="false" autofocus />
+      <span class="cursor"></span>
+    </div>
+  </div>
+
+  <script>
+    // --- Core constants ---
+    const MASTER_PASSWORD = "Breeez";
+    const STORE_KEY = "breeez_pm_entries";
+    const SALT_KEY = "breeez_pm_salt";
+
+    const terminal = document.getElementById("terminal");
+    const input = document.getElementById("cmd");
+
+    let loggedIn = false;
+    let inPasswordManager = false;
+    let pendingAction = null;
+    let tempEntry = {};
+    let fakeHackInterval = null;
+    let matrixInterval = null;
+
+    // --- Utility ---
+    const wait = (ms) => new Promise(r => setTimeout(r, ms));
+    const enc = new TextEncoder();
+    const dec = new TextDecoder();
+
+    function writeLine(text = "") {
+      const line = document.createElement("div");
+      line.textContent = text;
+      terminal.appendChild(line);
+      terminal.scrollTop = terminal.scrollHeight;
+    }
+
+    async function typeLine(text, speed = 12) {
+      const line = document.createElement("div");
+      terminal.appendChild(line);
+      for (const ch of text) {
+        line.textContent += ch;
+        terminal.scrollTop = terminal.scrollHeight;
+        await wait(speed);
+      }
+    }
+
+    function clearTerminal() { terminal.innerHTML = ""; }
+
+    async function sha256Hex(inputText) {
+      const hash = await crypto.subtle.digest("SHA-256", enc.encode(inputText));
+      return [...new Uint8Array(hash)].map(b => b.toString(16).padStart(2, "0")).join("");
+    }
+
+    function randomString(length, chars) {
+      const bytes = crypto.getRandomValues(new Uint8Array(length));
+      return [...bytes].map(b => chars[b % chars.length]).join("");
+    }
+
+    function validateEmail(email) {
+      return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+    }
+
+    function passStrength(pass) {
+      let score = 0;
+      if (pass.length >= 12) score++;
+      if (/[A-Z]/.test(pass)) score++;
+      if (/[a-z]/.test(pass)) score++;
+      if (/\d/.test(pass)) score++;
+      if (/[^A-Za-z0-9]/.test(pass)) score++;
+      return ["Sehr schwach","Schwach","Mittel","Gut","Stark","Sehr stark"][score];
+    }
+
+    // --- Password manager crypto (AES-GCM) ---
+    async function getOrCreateSalt() {
+      let salt = localStorage.getItem(SALT_KEY);
+      if (!salt) {
+        const buf = crypto.getRandomValues(new Uint8Array(16));
+        salt = btoa(String.fromCharCode(...buf));
+        localStorage.setItem(SALT_KEY, salt);
+      }
+      return Uint8Array.from(atob(salt), c => c.charCodeAt(0));
+    }
+
+    async function deriveKey(master) {
+      const salt = await getOrCreateSalt();
+      const base = await crypto.subtle.importKey("raw", enc.encode(master), "PBKDF2", false, ["deriveKey"]);
+      return crypto.subtle.deriveKey(
+        { name: "PBKDF2", salt, iterations: 150000, hash: "SHA-256" },
+        base,
+        { name: "AES-GCM", length: 256 },
+        false,
+        ["encrypt", "decrypt"]
+      );
+    }
+
+    async function encryptText(text, master) {
+      const key = await deriveKey(master);
+      const iv = crypto.getRandomValues(new Uint8Array(12));
+      const cipher = await crypto.subtle.encrypt({ name: "AES-GCM", iv }, key, enc.encode(text));
+      return { iv: btoa(String.fromCharCode(...iv)), data: btoa(String.fromCharCode(...new Uint8Array(cipher))) };
+    }
+
+    async function decryptText(payload, master) {
+      const key = await deriveKey(master);
+      const iv = Uint8Array.from(atob(payload.iv), c => c.charCodeAt(0));
+      const data = Uint8Array.from(atob(payload.data), c => c.charCodeAt(0));
+      const plain = await crypto.subtle.decrypt({ name: "AES-GCM", iv }, key, data);
+      return dec.decode(plain);
+    }
+
+    function loadEntries() {
+      try { return JSON.parse(localStorage.getItem(STORE_KEY) || "[]"); }
+      catch { return []; }
+    }
+    function saveEntries(entries) { localStorage.setItem(STORE_KEY, JSON.stringify(entries)); }
+
+    function menu() {
+      writeLine("=".repeat(52));
+      writeLine("GENERATORS:");
+      writeLine("[1] Password Generator");
+      writeLine("[2] Fake Data Generator");
+      writeLine("[3] UUID Generator");
+      writeLine("CHECKERS:");
+      writeLine("[4] Password Strength Checker");
+      writeLine("[5] Email Validator");
+      writeLine("[6] JSON Validator");
+      writeLine("TOOLS:");
+      writeLine("[7] Base64 Encode/Decode");
+      writeLine("[8] Hash Generator (SHA-256)");
+      writeLine("[9] Random Number Generator");
+      writeLine("FUN:");
+      writeLine("[10] Fake Hacking Animation (visuell)");
+      writeLine("[11] Matrix Effekt starten/stoppen");
+      writeLine("SECURITY:");
+      writeLine("[12] Password Manager öffnen");
+      writeLine("Commands: help | clear");
+      writeLine("=".repeat(52));
+    }
+
+    function managerHelp() {
+      writeLine("Password Manager Commands:");
+      writeLine("add | list | show [id] | delete [id] | clearall | back");
+    }
+
+    async function start() {
+      await typeLine("[SYSTEM] MASTER PASSWORD REQUIRED");
+      await typeLine("Bitte Passwort eingeben:");
+    }
+
+    async function handleMain(cmd) {
+      switch (cmd) {
+        case "help": menu(); break;
+        case "clear": clearTerminal(); break;
+        case "1": writeLine("Passwort: " + randomString(20, "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!@#$%^&*()_+-=")); break;
+        case "2": {
+          const names = ["Alex Weber", "Mila König", "Tom Berger", "Nina Brandt"];
+          const n = names[Math.floor(Math.random() * names.length)];
+          const email = n.toLowerCase().replace(" ", ".") + Math.floor(Math.random() * 999) + "@demo.local";
+          writeLine(`Name: ${n} | Email: ${email}`);
+          break;
+        }
+        case "3": writeLine("UUID: " + crypto.randomUUID()); break;
+        case "4": pendingAction = "checkPass"; writeLine("Passwort zum Prüfen eingeben:"); break;
+        case "5": pendingAction = "checkMail"; writeLine("Email eingeben:"); break;
+        case "6": pendingAction = "checkJson"; writeLine("JSON eingeben:"); break;
+        case "7": pendingAction = "base64"; writeLine("Format: e <text> (encode) | d <base64> (decode)"); break;
+        case "8": pendingAction = "hash"; writeLine("Text zum Hashen eingeben:"); break;
+        case "9": writeLine("Random Zahl: " + Math.floor(Math.random() * 1000000)); break;
+        case "10": fakeHacking(); break;
+        case "11": toggleMatrix(); break;
+        case "12": inPasswordManager = true; writeLine("[PM] geöffnet."); managerHelp(); break;
+        default: writeLine("Unbekannter Befehl. Nutze help.");
+      }
+    }
+
+    async function handlePending(cmd) {
+      const p = pendingAction;
+      pendingAction = null;
+      if (p === "checkPass") return writeLine("Stärke: " + passStrength(cmd));
+      if (p === "checkMail") return writeLine(validateEmail(cmd) ? "Email ist gültig." : "Email ungültig.");
+      if (p === "checkJson") {
+        try { JSON.parse(cmd); writeLine("JSON gültig."); }
+        catch { writeLine("JSON ungültig."); }
+        return;
+      }
+      if (p === "hash") return writeLine("SHA-256: " + await sha256Hex(cmd));
+      if (p === "base64") {
+        const mode = cmd.slice(0, 2);
+        const value = cmd.slice(2).trim();
+        try {
+          if (mode === "e ") writeLine("Base64: " + btoa(unescape(encodeURIComponent(value))));
+          else if (mode === "d ") writeLine("Text: " + decodeURIComponent(escape(atob(value))));
+          else writeLine("Bitte 'e text' oder 'd base64' nutzen.");
+        } catch { writeLine("Fehler bei Base64 Verarbeitung."); }
+      }
+    }
+
+    async function handleManager(cmd) {
+      const [action, arg] = cmd.split(" ");
+      const entries = loadEntries();
+
+      if (pendingAction?.startsWith("pm:")) {
+        const step = pendingAction;
+        if (step === "pm:add:site") { tempEntry.site = cmd; pendingAction = "pm:add:user"; return writeLine("Username/Email:"); }
+        if (step === "pm:add:user") { tempEntry.user = cmd; pendingAction = "pm:add:pass"; return writeLine("Passwort:"); }
+        if (step === "pm:add:pass") {
+          tempEntry.pass = cmd;
+          const encrypted = await encryptText(tempEntry.pass, MASTER_PASSWORD);
+          entries.push({ id: Date.now(), site: tempEntry.site, user: tempEntry.user, pass: encrypted });
+          saveEntries(entries);
+          tempEntry = {};
+          pendingAction = null;
+          return writeLine("[PM] Eintrag gespeichert.");
+        }
+      }
+
+      if (action === "add") { pendingAction = "pm:add:site"; return writeLine("Website/Dienst:"); }
+      if (action === "list") {
+        if (!entries.length) return writeLine("[PM] Keine Einträge.");
+        entries.forEach((e, i) => writeLine(`${i + 1}. ${e.site} | ${e.user} | ******`));
+        return;
+      }
+      if (action === "show") {
+        const idx = Number(arg) - 1;
+        if (idx < 0 || idx >= entries.length) return writeLine("Ungültige ID.");
+        const plain = await decryptText(entries[idx].pass, MASTER_PASSWORD);
+        const line = document.createElement("div");
+        line.textContent = `Passwort [${arg}] ${entries[idx].site}: ${plain}`;
+        const b = document.createElement("button");
+        b.className = "copy-btn"; b.textContent = "COPY";
+        b.onclick = async () => { await navigator.clipboard.writeText(plain); writeLine("[PM] Passwort in Clipboard kopiert."); };
+        line.appendChild(b);
+        terminal.appendChild(line);
+        terminal.scrollTop = terminal.scrollHeight;
+        return;
+      }
+      if (action === "delete") {
+        const idx = Number(arg) - 1;
+        if (idx < 0 || idx >= entries.length) return writeLine("Ungültige ID.");
+        if (!confirm("Eintrag wirklich löschen?")) return writeLine("Abgebrochen.");
+        entries.splice(idx, 1);
+        saveEntries(entries);
+        return writeLine("[PM] Eintrag gelöscht.");
+      }
+      if (action === "clearall") {
+        if (!confirm("Wirklich ALLE Einträge löschen?")) return writeLine("Abgebrochen.");
+        saveEntries([]);
+        return writeLine("[PM] Alle Einträge gelöscht.");
+      }
+      if (action === "back") { inPasswordManager = false; writeLine("[PM] geschlossen."); return; }
+      if (action === "help") return managerHelp();
+      writeLine("[PM] Unbekannter Command.");
+    }
+
+    function fakeHacking() {
+      if (fakeHackInterval) return writeLine("Fake-Hack läuft bereits...");
+      let count = 0;
+      fakeHackInterval = setInterval(() => {
+        writeLine(`[SCAN] Node_${Math.floor(Math.random()*999)} => ${Math.random().toString(36).slice(2, 10)}`);
+        if (++count > 12) { clearInterval(fakeHackInterval); fakeHackInterval = null; writeLine("[SIM] abgeschlossen."); }
+      }, 150);
+    }
+
+    function toggleMatrix() {
+      if (matrixInterval) {
+        clearInterval(matrixInterval);
+        matrixInterval = null;
+        writeLine("[MATRIX] gestoppt.");
+        return;
+      }
+      writeLine("[MATRIX] gestartet.");
+      matrixInterval = setInterval(() => writeLine(randomString(64, "01ABCDEF#$@")), 120);
+      setTimeout(() => { if (matrixInterval) { clearInterval(matrixInterval); matrixInterval = null; writeLine("[MATRIX] auto-stop nach 10s."); } }, 10000);
+    }
+
+    input.addEventListener("keydown", async (e) => {
+      if (e.key !== "Enter") return;
+      const raw = input.value;
+      const cmd = raw.trim();
+      input.value = "";
+      if (!cmd && !pendingAction) return;
+      writeLine(`>>> ${raw}`);
+
+      if (!loggedIn) {
+        if (cmd === MASTER_PASSWORD) {
+          loggedIn = true;
+          await typeLine("ACCESS GRANTED");
+          menu();
+        } else {
+          await typeLine("ACCESS DENIED");
+        }
+        return;
+      }
+
+      if (pendingAction) {
+        if (inPasswordManager && pendingAction.startsWith("pm:")) return handleManager(cmd);
+        return handlePending(cmd);
+      }
+
+      if (inPasswordManager) return handleManager(cmd);
+      return handleMain(cmd.toLowerCase());
+    });
+
+    start();
+  </script>
+</body>
+</html>
