@@ -1,0 +1,38 @@
+:root {
+  --main: #00BFFF;
+  --hover: #1E90FF;
+  --bg: #0a0f1c;
+  --text: #ffffff;
+  --card: rgba(255, 255, 255, 0.06);
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; font-family: "Poppins", sans-serif; }
+body { background: var(--bg); color: var(--text); min-height: 100vh; }
+.background-animation {
+  position: fixed; inset: 0; z-index: -1;
+  background: radial-gradient(circle at 20% 20%, rgba(0,191,255,.25), transparent 40%),
+              radial-gradient(circle at 80% 80%, rgba(30,144,255,.2), transparent 40%);
+}
+.content { max-width: 1100px; margin: 0 auto; padding: 2rem; }
+.navbar, .stat-box, .footer, .api-section, .features-section, .team-section {
+  background: var(--card); border: 1px solid rgba(0,191,255,.25); border-radius: 16px;
+  box-shadow: 0 0 20px rgba(30,144,255,.18);
+}
+.navbar { display: flex; justify-content: space-between; align-items: center; padding: 1rem 1.5rem; }
+.logo, .highlight, .section-title { color: var(--main); text-shadow: 0 0 16px rgba(0,191,255,.45); }
+.nav-links { display: flex; gap: .75rem; }
+.nav-button { color: var(--text); text-decoration: none; padding: .6rem .8rem; border-radius: 10px; }
+.nav-button:hover { background: var(--hover); box-shadow: 0 0 14px rgba(30,144,255,.55); }
+.hero-section, .stats-section, .features-section, .team-section, .api-section, .footer { margin-top: 1.5rem; padding: 1.5rem; }
+.main-title { font-size: clamp(1.8rem, 4vw, 3rem); }
+.subtitle { margin-top: .7rem; opacity: .9; }
+.cta-buttons { display: flex; gap: .75rem; margin-top: 1rem; flex-wrap: wrap; }
+.cta-button { padding: .8rem 1rem; border-radius: 12px; text-decoration: none; color: #fff; }
+.cta-button.primary { background: linear-gradient(120deg, var(--main), var(--hover)); }
+.cta-button.secondary { border: 1px solid var(--main); }
+.cta-button:hover { transform: translateY(-2px); box-shadow: 0 0 14px rgba(30,144,255,.5); }
+.stats-container { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: .9rem; margin-top: 1rem; }
+.stat-box { padding: 1rem; }
+.stat-number { display: block; color: var(--main); font-weight: 700; margin-bottom: .4rem; }
+.api-warning { margin-top: .6rem; color: #9bdfff; }
+@media (max-width: 700px) { .navbar { flex-direction: column; gap: .8rem; } }
